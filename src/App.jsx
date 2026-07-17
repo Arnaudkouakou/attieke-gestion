@@ -137,31 +137,39 @@ const SEED_COMMANDES = [
 /* ---------------------------------------------------------
    STORAGE HELPERS
 --------------------------------------------------------- */
-function withTimeout(promise, ms, fallback) {
-  return Promise.race([
-    promise.catch(() => fallback),
-    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
-  ]);
-}
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 async function loadKey(key, seed) {
-  if (!window.storage) return seed;
-  const res = await withTimeout(window.storage.get(key, true), 2500, null);
-  if (res && res.value) {
-    try { return JSON.parse(res.value); } catch { return seed; }
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return seed;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/app_data?key=eq.${encodeURIComponent(key)}&select=value`,
+      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    );
+    const rows = await res.json();
+    if (Array.isArray(rows) && rows.length > 0) return rows[0].value;
+    return seed;
+  } catch {
+    return seed;
   }
-  return seed;
 }
 
 function saveKey(key, value) {
-  if (!window.storage) return;
-  try {
-    window.storage.set(key, JSON.stringify(value), true).catch(() => {});
-  } catch {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  fetch(`${SUPABASE_URL}/rest/v1/app_data`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify([{ key, value }]),
+  }).catch(() => {
     /* silencieux : les données restent en mémoire pour cette session */
-  }
+  });
 }
-
 /* ---------------------------------------------------------
    PETITS COMPOSANTS
 --------------------------------------------------------- */
