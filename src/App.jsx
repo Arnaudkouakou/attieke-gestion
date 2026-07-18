@@ -404,6 +404,7 @@ export default function App() {
   const [encaisserCmd, setEncaisserCmd] = useState(null); // commande en cours d'encaissement
   const [encaisserClient, setEncaisserClient] = useState(null); // client en cours d'encaissement global
   const [confirmation, setConfirmation] = useState(null); // {message, action} ou {message} pour simple info
+  const [notifConfirm, setNotifConfirm] = useState(null); // {message, label, action} — confirmation + notification optionnelle
   const [releveClient, setReleveClient] = useState(null); // client dont on affiche le relevé de compte
   const [clientEdit, setClientEdit] = useState(null); // client en cours de modification
   const [rechercheClients, setRechercheClients] = useState("");
@@ -644,7 +645,11 @@ export default function App() {
     updateCommandes(commandes.map((c) => c.id === cmdId ? { ...c, paiements, statut, paiementSignale: false } : c));
 
     genererRecuAuto(cmd.clientId, cmd.id, lignesDeCommande(cmd), total, Number(montant), Math.max(0, total - paye), moyen);
-    notifierClient(clients.find((cl) => cl.id === cmd.clientId)?.tel, `Bonjour, nous avons bien reçu votre paiement de ${fcfa(Number(montant))} (${moyen}). Reste à payer : ${fcfa(Math.max(0, total - paye))}. Merci — HÉLÈNE Multiservices.`);
+    setNotifConfirm({
+      message: `Paiement de ${fcfa(Number(montant))} bien enregistré.`,
+      label: "Notifier le client par WhatsApp",
+      action: () => notifierClient(clients.find((cl) => cl.id === cmd.clientId)?.tel, `Bonjour, nous avons bien reçu votre paiement de ${fcfa(Number(montant))} (${moyen}). Reste à payer : ${fcfa(Math.max(0, total - paye))}. Merci — HÉLÈNE Multiservices.`),
+    });
   };
 
   // Encaissement global sur le solde d'un client : le montant est réparti
@@ -675,7 +680,11 @@ export default function App() {
     }
     updateCommandes(next);
     genererRecuAuto(clientId, null, lignesRecu, soldeAvant, Number(montant), Math.max(0, soldeAvant - Number(montant)), moyen);
-    notifierClient(clients.find((cl) => cl.id === clientId)?.tel, `Bonjour, nous avons bien reçu votre versement de ${fcfa(Number(montant))} (${moyen}), réparti sur votre solde. Reste à payer : ${fcfa(Math.max(0, soldeAvant - Number(montant)))}. Merci — HÉLÈNE Multiservices.`);
+    setNotifConfirm({
+      message: `Versement de ${fcfa(Number(montant))} bien enregistré.`,
+      label: "Notifier le client par WhatsApp",
+      action: () => notifierClient(clients.find((cl) => cl.id === clientId)?.tel, `Bonjour, nous avons bien reçu votre versement de ${fcfa(Number(montant))} (${moyen}), réparti sur votre solde. Reste à payer : ${fcfa(Math.max(0, soldeAvant - Number(montant)))}. Merci — HÉLÈNE Multiservices.`),
+    });
   };
 
   const nomClient = (id) => clients.find((c) => c.id === id)?.nom || "—";
@@ -1815,6 +1824,7 @@ export default function App() {
           updateCommandes={updateCommandes} updateClients={updateClients}
           signature={signature}
           ajouterNotif={ajouterNotif}
+          setNotifConfirm={setNotifConfirm}
           isGerant={auth.role === "gerant"}
           onExit={auth.role === "gerant" ? () => setMode("gerant") : logout}
         />
@@ -1841,7 +1851,11 @@ export default function App() {
           onSave={(c) => {
             updateCommandes([...commandes, c]);
             setShowCommandeModal(false);
-            notifierClient(clients.find((cl) => cl.id === c.clientId)?.tel, `Bonjour, votre commande de ${fcfa(montantCommande(c))} a bien été enregistrée par HÉLÈNE Multiservices. Merci pour votre confiance !`);
+            setNotifConfirm({
+              message: `Commande de ${fcfa(montantCommande(c))} bien enregistrée.`,
+              label: "Notifier le client par WhatsApp",
+              action: () => notifierClient(clients.find((cl) => cl.id === c.clientId)?.tel, `Bonjour, votre commande de ${fcfa(montantCommande(c))} a bien été enregistrée par HÉLÈNE Multiservices. Merci pour votre confiance !`),
+            });
           }} />
       )}
       {showDocModal && (
@@ -1969,6 +1983,30 @@ export default function App() {
                 Compris
               </button>
             )}
+          </div>
+        </div>
+      )}
+      {notifConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(36,26,21,0.5)" }}>
+          <div className="w-full max-w-xs rounded-2xl p-5" style={{ background: C.card }}>
+            <div className="flex flex-col items-center gap-2 mb-4">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: C.greenSoft }}>
+                <Check size={20} style={{ color: C.greenDeep }} />
+              </div>
+              <p className="text-sm font-semibold text-center" style={{ color: C.ink }}>{notifConfirm.message}</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              {notifConfirm.label && (
+                <button onClick={() => { notifConfirm.action(); setNotifConfirm(null); }}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2" style={{ background: C.green }}>
+                  💬 {notifConfirm.label}
+                </button>
+              )}
+              <button onClick={() => setNotifConfirm(null)}
+                className="w-full py-2 rounded-xl text-sm font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                Fermer
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3638,7 +3676,7 @@ function LoginScreen({ clients, pin: pinAttendu = PIN_GERANT, recup, onResetPin,
 /* ---------------------------------------------------------
    ESPACE CLIENT (aperçu)
 --------------------------------------------------------- */
-function ClientPortal({ clients, produits, commandes, documents, activeClientId, setActiveClientId, montantCommande, montantReste, nomProduit, updateCommandes, updateClients, signature, ajouterNotif, isGerant, onExit }) {
+function ClientPortal({ clients, produits, commandes, documents, activeClientId, setActiveClientId, montantCommande, montantReste, nomProduit, updateCommandes, updateClients, signature, ajouterNotif, setNotifConfirm, isGerant, onExit }) {
   const [cart, setCart] = useState({});
   const [moyen, setMoyen] = useState("Mobile Money");
   const [jour, setJour] = useState(todayISO());
@@ -3687,7 +3725,13 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
     if (!isGerant && ajouterNotif) {
       const total = cartTotal + fraisTransport + fraisEmballage;
       ajouterNotif(`🛒 Nouvelle commande de ${client?.nom || "un client"} — ${fcfa(total)}`);
-      notifierGerant("Nouvelle commande (client)", `${client?.nom || "Un client"} vient de passer une commande depuis son espace : ${fcfa(total)}.`);
+      if (setNotifConfirm) {
+        setNotifConfirm({
+          message: `Votre commande de ${fcfa(total)} a bien été enregistrée !`,
+          label: "Notifier HÉLÈNE Multiservices par WhatsApp",
+          action: () => notifierGerant("Nouvelle commande (client)", `${client?.nom || "Un client"} vient de passer une commande depuis son espace : ${fcfa(total)}.`),
+        });
+      }
     }
     setCart({}); setZoneId("bouafle"); setEmballage(false); setPlaced(true);
     setTimeout(() => setPlaced(false), 3000);
@@ -3806,7 +3850,13 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
                             : c));
                           if (!isGerant && ajouterNotif) {
                             ajouterNotif(`💰 ${client?.nom || "Un client"} signale un versement de ${fcfa(Number(montantSignale))} par ${moyenSignale}`);
-                            notifierGerant("Versement signalé (client)", `${client?.nom || "Un client"} signale avoir versé ${fcfa(Number(montantSignale))} par ${moyenSignale} — à vérifier.`);
+                            if (setNotifConfirm) {
+                              setNotifConfirm({
+                                message: "Votre versement a bien été signalé !",
+                                label: "Notifier HÉLÈNE Multiservices par WhatsApp",
+                                action: () => notifierGerant("Versement signalé (client)", `${client?.nom || "Un client"} signale avoir versé ${fcfa(Number(montantSignale))} par ${moyenSignale} — à vérifier.`),
+                              });
+                            }
                           }
                           setSignalerPour(null); setMontantSignale("");
                         }}
