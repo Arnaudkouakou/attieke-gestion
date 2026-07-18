@@ -1384,6 +1384,15 @@ export default function App() {
                             style={{ background: C.greenSoft, color: C.greenDeep }}>
                             <Eye size={13} /> Voir
                           </button>
+                          <button
+                            onClick={() => setConfirmation({
+                              message: `Supprimer ce ${DOC_TYPES[doc.type].label.toLowerCase()} (${doc.numero}) ? Cette action est définitive.`,
+                              action: () => updateDocuments(documents.filter((d) => d.id !== doc.id)),
+                            })}
+                            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                            style={{ background: C.chiliSoft, color: C.chili }}>
+                            <Trash2 size={13} />
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -1853,8 +1862,10 @@ export default function App() {
             setShowCommandeModal(false);
             setNotifConfirm({
               message: `Commande de ${fcfa(montantCommande(c))} bien enregistrée.`,
-              label: "Notifier le client par WhatsApp",
-              action: () => notifierClient(clients.find((cl) => cl.id === c.clientId)?.tel, `Bonjour, votre commande de ${fcfa(montantCommande(c))} a bien été enregistrée par HÉLÈNE Multiservices. Merci pour votre confiance !`),
+              ...(c.date === todayISO() ? {
+                label: "Notifier le client par WhatsApp",
+                action: () => notifierClient(clients.find((cl) => cl.id === c.clientId)?.tel, `Bonjour, votre commande de ${fcfa(montantCommande(c))} a bien été enregistrée par HÉLÈNE Multiservices. Merci pour votre confiance !`),
+              } : {}),
             });
           }} />
       )}
@@ -2097,8 +2108,9 @@ function AddProduitModal({ onClose, onSave }) {
 function AddCommandeModal({ clients, produits, onClose, onSave }) {
   const [clientId, setClientId] = useState(clients[0]?.id || "");
   const [items, setItems] = useState([{ produitId: produits[0]?.id || "", qte: 1 }]);
-  const [statut, setStatut] = useState("impayé");
+  const [montantDejaVerse, setMontantDejaVerse] = useState(""); // 0 ou vide = pas encore payé — statut calculé automatiquement
   const [moyen, setMoyen] = useState("Espèces");
+  const [dateCommande, setDateCommande] = useState(todayISO()); // modifiable : saisie d'une commande passée
   const [jour, setJour] = useState(todayISO());
   const [zoneId, setZoneId] = useState("bouafle");
   const [emballage, setEmballage] = useState(false);
@@ -2203,11 +2215,26 @@ function AddCommandeModal({ clients, produits, onClose, onSave }) {
         </div>
       </div>
 
-      <Field label="Statut de paiement">
-        <select value={statut} onChange={(e) => setStatut(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle}>
-          <option value="impayé">Impayé</option><option value="partiel">Partiel</option><option value="payé">Payé</option>
-        </select>
+      <Field label="Date de la commande (modifiable pour une saisie rétroactive)">
+        <input type="date" value={dateCommande} onChange={(e) => setDateCommande(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
       </Field>
+      <Field label={`Montant déjà payé sur ${fcfa(sousTotal + fraisTransport + fraisEmballage)} (0 si rien n'est encore versé)`}>
+        <input type="number" min="0" max={sousTotal + fraisTransport + fraisEmballage} placeholder="0" value={montantDejaVerse}
+          onChange={(e) => setMontantDejaVerse(e.target.value)}
+          className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      {(() => {
+        const total = sousTotal + fraisTransport + fraisEmballage;
+        const verse = Math.min(Number(montantDejaVerse) || 0, total);
+        const reste = Math.max(0, total - verse);
+        const statutCalcule = verse >= total && total > 0 ? "payé" : verse > 0 ? "partiel" : "impayé";
+        return (
+          <div className="rounded-xl px-3 py-2.5 mb-3 text-xs flex items-center justify-between" style={{ background: C.bg }}>
+            <span style={{ color: C.inkSoft }}>Statut calculé : <b style={{ color: C.ink }}>{statutCalcule}</b></span>
+            <span className="mono font-semibold" style={{ color: reste > 0 ? C.chili : C.greenDeep }}>Reste dû : {fcfa(reste)}</span>
+          </div>
+        );
+      })()}
       <Field label="Moyen de paiement">
         <select value={moyen} onChange={(e) => setMoyen(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle}>
           <option>Espèces</option><option>Mobile Money</option><option>Virement</option>
@@ -2217,13 +2244,19 @@ function AddCommandeModal({ clients, produits, onClose, onSave }) {
 
       <button
         disabled={!clientId || items.length === 0}
-        onClick={() => onSave({
-          id: "o" + Date.now(), clientId, date: todayISO(), items, statut,
-          moyenPaiement: moyen, jourPaiement: jour,
-          zone: zone.tarif > 0 ? zone.label : null,
-          nbSacs: (fraisTransport > 0 || fraisEmballage > 0) ? nbSacs : 0,
-          fraisTransport, fraisEmballage,
-        })}
+        onClick={() => {
+          const total = sousTotal + fraisTransport + fraisEmballage;
+          const verse = Math.min(Number(montantDejaVerse) || 0, total);
+          const statutCalcule = verse >= total && total > 0 ? "payé" : verse > 0 ? "partiel" : "impayé";
+          onSave({
+            id: "o" + Date.now(), clientId, date: dateCommande, items, statut: statutCalcule,
+            moyenPaiement: moyen, jourPaiement: jour,
+            zone: zone.tarif > 0 ? zone.label : null,
+            nbSacs: (fraisTransport > 0 || fraisEmballage > 0) ? nbSacs : 0,
+            fraisTransport, fraisEmballage,
+            ...(verse > 0 ? { paiements: [{ montant: verse, moyen, date: dateCommande }] } : {}),
+          });
+        }}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
         Enregistrer la commande
       </button>
