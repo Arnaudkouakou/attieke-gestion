@@ -162,6 +162,8 @@ async function loadKey(key, seed) {
   return seed; // clé jamais créée : première utilisation légitime
 }
 
+let onSaveError = null; // callback branché par l'app pour afficher un avertissement visible
+
 function saveKey(key, value) {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
   fetch(`${SUPABASE_URL}/rest/v1/app_data`, {
@@ -173,8 +175,10 @@ function saveKey(key, value) {
       Prefer: "resolution=merge-duplicates,return=minimal",
     },
     body: JSON.stringify([{ key, value }]),
+  }).then((res) => {
+    if (!res.ok && onSaveError) onSaveError(key);
   }).catch(() => {
-    /* silencieux : les données restent en mémoire pour cette session */
+    if (onSaveError) onSaveError(key);
   });
 }
 
@@ -374,6 +378,12 @@ export default function App() {
   const [section, setSection] = useState("dashboard");
   const [loading, setLoading] = useState(true);
   const [erreurChargement, setErreurChargement] = useState(false);
+  const [erreurSauvegarde, setErreurSauvegarde] = useState(false);
+
+  useEffect(() => {
+    onSaveError = () => setErreurSauvegarde(true);
+    return () => { onSaveError = null; };
+  }, []);
   const [menuOpen, setMenuOpen] = useState(false);
   const [auth, setAuth] = useState(null); // null | {role:"gerant"} | {role:"client", clientId}
 
@@ -751,6 +761,12 @@ export default function App() {
       backgroundImage: `radial-gradient(circle, rgba(36,26,21,0.05) 1px, transparent 1px)`,
       backgroundSize: "16px 16px",
     }}>
+      {erreurSauvegarde && (
+        <div className="fixed top-0 left-0 right-0 z-[70] px-4 py-2.5 flex items-center justify-between gap-3 text-xs font-semibold text-white" style={{ background: C.chili }}>
+          <span>⚠️ Une sauvegarde a échoué (connexion instable). Vérifiez votre réseau avant de continuer.</span>
+          <button onClick={() => setErreurSauvegarde(false)} className="shrink-0 underline">Fermer</button>
+        </div>
+      )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap');
         * { font-family: 'Public Sans', sans-serif; }
@@ -2074,7 +2090,14 @@ function ClientModal({ initial, onClose, onSave }) {
       </div>
 
       <Field label="Nom"><input value={nom} onChange={(e) => setNom(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
-      <Field label="Téléphone (sert de clé de connexion du client)"><input value={tel} onChange={(e) => setTel(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Téléphone (sert de clé de connexion du client)">
+        <input value={tel} onChange={(e) => setTel(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      {tel && tel.replace(/\D/g, "").length !== 10 && (
+        <p className="text-[11px] -mt-2.5 mb-3 font-semibold" style={{ color: C.gold }}>
+          ⚠️ Ce numéro n'a pas 10 chiffres — les notifications WhatsApp ne pourront pas lui être envoyées.
+        </p>
+      )}
       <Field label="Adresse"><input value={adresse} onChange={(e) => setAdresse(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Type">
         <select value={type} onChange={(e) => setType(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle}>
@@ -2109,6 +2132,8 @@ function AddCommandeModal({ clients, produits, onClose, onSave }) {
   const [clientId, setClientId] = useState(clients[0]?.id || "");
   const [items, setItems] = useState([{ produitId: produits[0]?.id || "", qte: 1 }]);
   const [montantDejaVerse, setMontantDejaVerse] = useState(""); // 0 ou vide = pas encore payé — statut calculé automatiquement
+  const [dejaLivree, setDejaLivree] = useState(false); // pour une commande passée déjà livrée
+  const [dateLivraisonPassee, setDateLivraisonPassee] = useState(todayISO());
   const [moyen, setMoyen] = useState("Espèces");
   const [dateCommande, setDateCommande] = useState(todayISO()); // modifiable : saisie d'une commande passée
   const [jour, setJour] = useState(todayISO());
@@ -2218,6 +2243,15 @@ function AddCommandeModal({ clients, produits, onClose, onSave }) {
       <Field label="Date de la commande (modifiable pour une saisie rétroactive)">
         <input type="date" value={dateCommande} onChange={(e) => setDateCommande(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
       </Field>
+      <label className="flex items-center gap-2 mb-3 text-sm" style={{ color: C.ink }}>
+        <input type="checkbox" checked={dejaLivree} onChange={(e) => setDejaLivree(e.target.checked)} />
+        Cette commande a déjà été livrée
+      </label>
+      {dejaLivree && (
+        <Field label="Date de livraison">
+          <input type="date" value={dateLivraisonPassee} onChange={(e) => setDateLivraisonPassee(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+        </Field>
+      )}
       <Field label={`Montant déjà payé sur ${fcfa(sousTotal + fraisTransport + fraisEmballage)} (0 si rien n'est encore versé)`}>
         <input type="number" min="0" max={sousTotal + fraisTransport + fraisEmballage} placeholder="0" value={montantDejaVerse}
           onChange={(e) => setMontantDejaVerse(e.target.value)}
@@ -2254,6 +2288,7 @@ function AddCommandeModal({ clients, produits, onClose, onSave }) {
             zone: zone.tarif > 0 ? zone.label : null,
             nbSacs: (fraisTransport > 0 || fraisEmballage > 0) ? nbSacs : 0,
             fraisTransport, fraisEmballage,
+            ...(dejaLivree ? { livree: true, dateLivraison: dateLivraisonPassee } : {}),
             ...(verse > 0 ? { paiements: [{ montant: verse, moyen, date: dateCommande }] } : {}),
           });
         }}
@@ -2531,10 +2566,16 @@ function PersonnelModal({ initial, onClose, onSave }) {
         ) : (
           <div className="mb-2"><ClaieBadge size={80}><UserCog size={30} /></ClaieBadge></div>
         )}
-        <label className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: C.greenSoft, color: C.greenDeep }}>
-          {photo ? "Changer la photo" : "Ajouter une photo"}
-          <input type="file" accept="image/*" onChange={chargerPhoto} className="hidden" />
-        </label>
+        <div className="flex gap-2">
+          <label className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: C.greenSoft, color: C.greenDeep }}>
+            📷 Prendre une photo
+            <input type="file" accept="image/*" capture="environment" onChange={chargerPhoto} className="hidden" />
+          </label>
+          <label className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: C.bgAlt, color: C.ink }}>
+            Depuis la galerie
+            <input type="file" accept="image/*" onChange={chargerPhoto} className="hidden" />
+          </label>
+        </div>
         {photo && (
           <button onClick={() => setPhoto("")} className="text-[11px] mt-1" style={{ color: C.chili }}>Retirer la photo</button>
         )}
@@ -2627,13 +2668,49 @@ function AddMaterielModal({ onClose, onSave }) {
 function AddAchatModal({ onClose, onSave }) {
   const [designation, setDesignation] = useState(""); const [fournisseur, setFournisseur] = useState("");
   const [montant, setMontant] = useState(""); const [date, setDate] = useState(todayISO());
+  const [photo, setPhoto] = useState("");
+  const chargerPhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 640;
+        const ratio = Math.min(MAX / img.width, MAX / img.height, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        setPhoto(canvas.toDataURL("image/jpeg", 0.75));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  };
   return (
     <Modal title="Nouvel achat" onClose={onClose}>
       <Field label="Désignation (ex : manioc 500kg, sacs, gaz…)"><input value={designation} onChange={(e) => setDesignation(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Fournisseur (optionnel)"><input value={fournisseur} onChange={(e) => setFournisseur(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Montant (FCFA)"><input type="number" value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
-      <button disabled={!designation || !montant} onClick={() => onSave({ id: "a" + Date.now(), designation, fournisseur, montant: Number(montant), date })}
+      <Field label="Photo du justificatif (optionnel)">
+        <div className="flex flex-col items-center">
+          {photo && <img src={photo} alt="Justificatif" className="w-full max-w-[200px] rounded-lg mb-2 object-cover" style={{ border: `2px solid ${C.green}` }} />}
+          <div className="flex gap-2">
+            <label className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: C.greenSoft, color: C.greenDeep }}>
+              📷 Prendre une photo
+              <input type="file" accept="image/*" capture="environment" onChange={chargerPhoto} className="hidden" />
+            </label>
+            <label className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: C.bgAlt, color: C.ink }}>
+              Depuis la galerie
+              <input type="file" accept="image/*" onChange={chargerPhoto} className="hidden" />
+            </label>
+          </div>
+          {photo && <button onClick={() => setPhoto("")} className="text-[11px] mt-1" style={{ color: C.chili }}>Retirer la photo</button>}
+        </div>
+      </Field>
+      <button disabled={!designation || !montant} onClick={() => onSave({ id: "a" + Date.now(), designation, fournisseur, montant: Number(montant), date, photo })}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
         Enregistrer
       </button>
@@ -2647,14 +2724,50 @@ function EditAchatModal({ achat, onClose, onSave, onDelete }) {
   const [fournisseur, setFournisseur] = useState(achat.fournisseur || "");
   const [montant, setMontant] = useState(achat.montant ?? "");
   const [date, setDate] = useState(achat.date || todayISO());
+  const [photo, setPhoto] = useState(achat.photo || "");
+  const chargerPhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 640;
+        const ratio = Math.min(MAX / img.width, MAX / img.height, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        setPhoto(canvas.toDataURL("image/jpeg", 0.75));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  };
   return (
     <Modal title="Modifier l'achat" onClose={onClose}>
       <Field label="Désignation"><input value={designation} onChange={(e) => setDesignation(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Fournisseur (optionnel)"><input value={fournisseur} onChange={(e) => setFournisseur(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Montant (FCFA)"><input type="number" value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Photo du justificatif (optionnel)">
+        <div className="flex flex-col items-center">
+          {photo && <img src={photo} alt="Justificatif" className="w-full max-w-[200px] rounded-lg mb-2 object-cover" style={{ border: `2px solid ${C.green}` }} />}
+          <div className="flex gap-2">
+            <label className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: C.greenSoft, color: C.greenDeep }}>
+              📷 Prendre une photo
+              <input type="file" accept="image/*" capture="environment" onChange={chargerPhoto} className="hidden" />
+            </label>
+            <label className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: C.bgAlt, color: C.ink }}>
+              Depuis la galerie
+              <input type="file" accept="image/*" onChange={chargerPhoto} className="hidden" />
+            </label>
+          </div>
+          {photo && <button onClick={() => setPhoto("")} className="text-[11px] mt-1" style={{ color: C.chili }}>Retirer la photo</button>}
+        </div>
+      </Field>
       <button disabled={!designation || !montant}
-        onClick={() => onSave({ ...achat, designation, fournisseur, montant: Number(montant), date })}
+        onClick={() => onSave({ ...achat, designation, fournisseur, montant: Number(montant), date, photo })}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
         Enregistrer les modifications
       </button>
@@ -2670,6 +2783,26 @@ function EditAchatModal({ achat, onClose, onSave, onDelete }) {
 function AddDepenseModal({ onClose, onSave }) {
   const [designation, setDesignation] = useState(""); const [categorie, setCategorie] = useState("Entretien matériel");
   const [montant, setMontant] = useState(""); const [date, setDate] = useState(todayISO());
+  const [photo, setPhoto] = useState("");
+  const chargerPhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 640;
+        const ratio = Math.min(MAX / img.width, MAX / img.height, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        setPhoto(canvas.toDataURL("image/jpeg", 0.75));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  };
   return (
     <Modal title="Nouvelle dépense" onClose={onClose}>
       <Field label="Désignation (ex : réparation broyeur, facture CIE…)"><input value={designation} onChange={(e) => setDesignation(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
@@ -2680,7 +2813,23 @@ function AddDepenseModal({ onClose, onSave }) {
       </Field>
       <Field label="Montant (FCFA)"><input type="number" value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
-      <button disabled={!designation || !montant} onClick={() => onSave({ id: "x" + Date.now(), designation, categorie, montant: Number(montant), date })}
+      <Field label="Photo du justificatif (optionnel)">
+        <div className="flex flex-col items-center">
+          {photo && <img src={photo} alt="Justificatif" className="w-full max-w-[200px] rounded-lg mb-2 object-cover" style={{ border: `2px solid ${C.green}` }} />}
+          <div className="flex gap-2">
+            <label className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: C.greenSoft, color: C.greenDeep }}>
+              📷 Prendre une photo
+              <input type="file" accept="image/*" capture="environment" onChange={chargerPhoto} className="hidden" />
+            </label>
+            <label className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: C.bgAlt, color: C.ink }}>
+              Depuis la galerie
+              <input type="file" accept="image/*" onChange={chargerPhoto} className="hidden" />
+            </label>
+          </div>
+          {photo && <button onClick={() => setPhoto("")} className="text-[11px] mt-1" style={{ color: C.chili }}>Retirer la photo</button>}
+        </div>
+      </Field>
+      <button disabled={!designation || !montant} onClick={() => onSave({ id: "x" + Date.now(), designation, categorie, montant: Number(montant), date, photo })}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
         Enregistrer
       </button>
