@@ -409,12 +409,19 @@ export default function App() {
   const [showMaterielModal, setShowMaterielModal] = useState(false);
   const [showAchatModal, setShowAchatModal] = useState(false);
   const [editAchat, setEditAchat] = useState(null);
+  const [livraisonCmd, setLivraisonCmd] = useState(null);
   const [showDepenseModal, setShowDepenseModal] = useState(false);
   const [showRapport, setShowRapport] = useState(false);
   const [encaisserCmd, setEncaisserCmd] = useState(null); // commande en cours d'encaissement
   const [encaisserClient, setEncaisserClient] = useState(null); // client en cours d'encaissement global
   const [confirmation, setConfirmation] = useState(null); // {message, action} ou {message} pour simple info
   const [notifConfirm, setNotifConfirm] = useState(null); // {message, label, action} — confirmation + notification optionnelle
+  const [toast, setToast] = useState(null); // message court auto-disparaissant, pour confirmer une action simple
+  const [vueComparatif, setVueComparatif] = useState("mois"); // "mois" | "annee" — pour le comparatif Ventes/Bénéfices/Dépenses
+  const afficherToast = (message, succes = true) => {
+    setToast({ message, succes });
+    setTimeout(() => setToast((t) => (t && t.message === message ? null : t)), 2000);
+  };
   const [releveClient, setReleveClient] = useState(null); // client dont on affiche le relevé de compte
   const [clientEdit, setClientEdit] = useState(null); // client en cours de modification
   const [rechercheClients, setRechercheClients] = useState("");
@@ -765,6 +772,23 @@ export default function App() {
         <div className="fixed top-0 left-0 right-0 z-[70] px-4 py-2.5 flex items-center justify-between gap-3 text-xs font-semibold text-white" style={{ background: C.chili }}>
           <span>⚠️ Une sauvegarde a échoué (connexion instable). Vérifiez votre réseau avant de continuer.</span>
           <button onClick={() => setErreurSauvegarde(false)} className="shrink-0 underline">Fermer</button>
+        </div>
+      )}
+      {toast && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={{ background: "rgba(36,26,21,0.5)" }} onClick={() => setToast(null)}>
+          <div className="w-full max-w-xs rounded-2xl p-5" style={{ background: C.card }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex flex-col items-center gap-2 mb-4">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center"
+                style={{ background: toast.succes ? C.greenSoft : C.chiliSoft }}>
+                {toast.succes ? <Check size={20} style={{ color: C.greenDeep }} /> : <AlertCircle size={20} style={{ color: C.chili }} />}
+              </div>
+              <p className="text-sm font-semibold text-center" style={{ color: C.ink }}>{toast.message}</p>
+            </div>
+            <button onClick={() => setToast(null)}
+              className="w-full py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: toast.succes ? C.green : C.chili }}>
+              OK
+            </button>
+          </div>
         </div>
       )}
       <style>{`
@@ -1279,7 +1303,7 @@ export default function App() {
                             <div className="flex items-center gap-2 mt-3 flex-wrap">
                               {!cmd.livree && (
                                 <button
-                                  onClick={() => updateCommandes(commandes.map((c) => c.id === cmd.id ? { ...c, livree: true, dateLivraison: todayISO() } : c))}
+                                  onClick={() => setLivraisonCmd(cmd)}
                                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
                                   style={{ background: C.gold }}>
                                   🚚 Marquer livrée
@@ -1746,6 +1770,46 @@ export default function App() {
               const moisTries = Object.keys(mois).sort().reverse();
               const nomMois = (k) => new Date(k + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
 
+              // Comparatif Ventes / Dépenses / Bénéfices — par mois puis agrégé par année
+              const statsMois = {};
+              commandes.forEach((c) => {
+                const k = c.date.slice(0, 7);
+                statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
+                statsMois[k].ventes += montantCommande(c);
+              });
+              achats.forEach((a) => {
+                const k = a.date.slice(0, 7);
+                statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
+                statsMois[k].depenses += a.montant;
+              });
+              depenses.forEach((d) => {
+                const k = d.date.slice(0, 7);
+                statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
+                statsMois[k].depenses += d.montant;
+              });
+              paies.filter((p) => p.statut === "payé").forEach((p) => {
+                const k = p.periode.slice(0, 7);
+                statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
+                statsMois[k].depenses += p.montant;
+              });
+              const moisComparatif = Object.keys(statsMois).sort().slice(-12).map((k) => ({
+                cle: k, label: nomMois(k), ventes: statsMois[k].ventes, depenses: statsMois[k].depenses,
+                benefice: statsMois[k].ventes - statsMois[k].depenses,
+              }));
+              const statsAnnee = {};
+              Object.keys(statsMois).forEach((k) => {
+                const an = k.slice(0, 4);
+                statsAnnee[an] = statsAnnee[an] || { ventes: 0, depenses: 0 };
+                statsAnnee[an].ventes += statsMois[k].ventes;
+                statsAnnee[an].depenses += statsMois[k].depenses;
+              });
+              const anneesComparatif = Object.keys(statsAnnee).sort().map((an) => ({
+                cle: an, label: an, ventes: statsAnnee[an].ventes, depenses: statsAnnee[an].depenses,
+                benefice: statsAnnee[an].ventes - statsAnnee[an].depenses,
+              }));
+              const donneesComparatif = vueComparatif === "mois" ? moisComparatif : anneesComparatif;
+              const maxComparatif = Math.max(1, ...donneesComparatif.flatMap((d) => [d.ventes, d.depenses, Math.abs(d.benefice)]));
+
               return (
                 <div>
                   <div className="flex items-center justify-between mb-1 flex-wrap gap-3">
@@ -1795,6 +1859,50 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Comparatif Ventes / Bénéfices / Dépenses */}
+                  <div className="rounded-2xl p-5 mb-6" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                      <h3 className="font-bold" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Comparatif Ventes / Bénéfices / Dépenses</h3>
+                      <div className="flex rounded-lg overflow-hidden" style={{ border: `1px solid ${C.border}` }}>
+                        {["mois", "annee"].map((v) => (
+                          <button key={v} onClick={() => setVueComparatif(v)}
+                            className="px-3 py-1.5 text-xs font-semibold"
+                            style={{ background: vueComparatif === v ? C.green : "transparent", color: vueComparatif === v ? "#fff" : C.inkSoft }}>
+                            {v === "mois" ? "Par mois" : "Par année"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 mb-4 text-xs">
+                      <span className="flex items-center gap-1.5" style={{ color: C.inkSoft }}><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: C.greenDeep }} />Ventes</span>
+                      <span className="flex items-center gap-1.5" style={{ color: C.inkSoft }}><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: C.gold }} />Bénéfice</span>
+                      <span className="flex items-center gap-1.5" style={{ color: C.inkSoft }}><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: C.chili }} />Dépenses</span>
+                    </div>
+                    {donneesComparatif.length === 0 ? (
+                      <p className="text-xs text-center py-4" style={{ color: C.inkSoft }}>Pas encore assez de données pour un comparatif.</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {donneesComparatif.slice().reverse().map((d) => (
+                          <div key={d.cle}>
+                            <div className="text-xs font-semibold capitalize mb-1" style={{ color: C.ink }}>{d.label}</div>
+                            {[
+                              { val: d.ventes, color: C.greenDeep },
+                              { val: d.benefice, color: C.gold },
+                              { val: d.depenses, color: C.chili },
+                            ].map((b, i) => (
+                              <div key={i} className="flex items-center gap-2 mb-1">
+                                <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: C.bg }}>
+                                  <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.abs(b.val) / maxComparatif * 100)}%`, background: b.color }} />
+                                </div>
+                                <span className="mono text-[11px] w-20 text-right shrink-0" style={{ color: b.color }}>{fcfa(b.val)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Par mois */}
@@ -1862,14 +1970,16 @@ export default function App() {
           onSave={(c) => {
             if (clientEdit) {
               updateClients(clients.map((x) => x.id === c.id ? c : x));
+              afficherToast("Client modifié");
             } else {
               updateClients([...clients, c]);
+              afficherToast("Client ajouté");
             }
             setShowClientModal(false); setClientEdit(null);
           }} />
       )}
       {showProduitModal && (
-        <AddProduitModal onClose={() => setShowProduitModal(false)} onSave={(p) => { updateProduits([...produits, p]); setShowProduitModal(false); }} />
+        <AddProduitModal onClose={() => setShowProduitModal(false)} onSave={(p) => { updateProduits([...produits, p]); setShowProduitModal(false); afficherToast("Produit ajouté"); }} />
       )}
       {showCommandeModal && (
         <AddCommandeModal clients={clients} produits={produits} onClose={() => setShowCommandeModal(false)}
@@ -1890,7 +2000,7 @@ export default function App() {
           clients={clients} produits={produits} commandes={commandes} documents={documents}
           montantCommande={montantCommande} nomClient={nomClient} nomProduit={nomProduit}
           onClose={() => setShowDocModal(false)}
-          onSave={(d) => { updateDocuments([...documents, d]); setShowDocModal(false); setDocPreview(d); }}
+          onSave={(d) => { updateDocuments([...documents, d]); setShowDocModal(false); setDocPreview(d); afficherToast("Document créé"); }}
         />
       )}
       {docPreview && (
@@ -1900,7 +2010,7 @@ export default function App() {
         <SignatureModal
           signature={signature}
           onClose={() => setShowSignatureModal(false)}
-          onSave={(s) => { updateSignature(s); setShowSignatureModal(false); }} />
+          onSave={(s) => { updateSignature(s); setShowSignatureModal(false); afficherToast("Signature enregistrée"); }} />
       )}
       {ficheEmploi && (
         <FicheEmploiModal emp={ficheEmploi} signature={signature} onClose={() => setFicheEmploi(null)} />
@@ -1931,28 +2041,39 @@ export default function App() {
                   return concerne ? { ...pa, montant: Number(p.salaire) || 0 } : pa;
                 });
               updatePaies(nouvellesPaies);
+              afficherToast("Employé(e) modifié(e)");
             } else {
               updatePersonnel([...personnel, p]);
+              afficherToast("Employé(e) ajouté(e)");
             }
             setShowPersonnelModal(false); setPersonnelEdit(null);
           }} />
       )}
       {showMaterielModal && (
         <AddMaterielModal onClose={() => setShowMaterielModal(false)}
-          onSave={(m) => { updateMateriel([...materiel, m]); setShowMaterielModal(false); }} />
+          onSave={(m) => { updateMateriel([...materiel, m]); setShowMaterielModal(false); afficherToast("Matériel ajouté"); }} />
       )}
       {showAchatModal && (
         <AddAchatModal onClose={() => setShowAchatModal(false)}
-          onSave={(a) => { updateAchats([...achats, a]); setShowAchatModal(false); }} />
+          onSave={(a) => { updateAchats([...achats, a]); setShowAchatModal(false); afficherToast("Achat enregistré"); }} />
       )}
       {editAchat && (
         <EditAchatModal achat={editAchat} onClose={() => setEditAchat(null)}
-          onSave={(a) => { updateAchats(achats.map((x) => x.id === a.id ? a : x)); setEditAchat(null); }}
-          onDelete={() => { updateAchats(achats.filter((x) => x.id !== editAchat.id)); setEditAchat(null); }} />
+          onSave={(a) => { updateAchats(achats.map((x) => x.id === a.id ? a : x)); setEditAchat(null); afficherToast("Achat modifié"); }}
+          onDelete={() => { updateAchats(achats.filter((x) => x.id !== editAchat.id)); setEditAchat(null); afficherToast("Achat supprimé"); }} />
+      )}
+      {livraisonCmd && (
+        <LivraisonModal cmd={livraisonCmd} produits={produits} nomProduit={nomProduit}
+          onClose={() => setLivraisonCmd(null)}
+          onSave={(items) => {
+            updateCommandes(commandes.map((c) => c.id === livraisonCmd.id ? { ...c, items, livree: true, dateLivraison: todayISO() } : c));
+            setLivraisonCmd(null);
+            afficherToast("Livraison enregistrée");
+          }} />
       )}
       {showDepenseModal && (
         <AddDepenseModal onClose={() => setShowDepenseModal(false)}
-          onSave={(d) => { updateDepenses([...depenses, d]); setShowDepenseModal(false); }} />
+          onSave={(d) => { updateDepenses([...depenses, d]); setShowDepenseModal(false); afficherToast("Dépense enregistrée"); }} />
       )}
       {showRapport && (
         <RapportModal
@@ -1999,7 +2120,7 @@ export default function App() {
                   className="py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
                   Annuler
                 </button>
-                <button onClick={() => { confirmation.action(); setConfirmation(null); }}
+                <button onClick={() => { confirmation.action(); setConfirmation(null); afficherToast("Suppression effectuée"); }}
                   className="py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.chili }}>
                   Confirmer
                 </button>
@@ -2123,6 +2244,43 @@ function AddProduitModal({ onClose, onSave }) {
       <button disabled={!nom || !prix} onClick={() => onSave({ id: "p" + Date.now(), nom, unite, prix: Number(prix), stock: 0, emoji: "🌾" })}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
         Enregistrer
+      </button>
+    </Modal>
+  );
+}
+
+// Saisie des quantités réellement livrées (peuvent différer de la commande initiale,
+// notamment quand celle-ci a été passée par le client lui-même). Les montants se
+// recalculent automatiquement à partir des quantités livrées.
+function LivraisonModal({ cmd, produits, nomProduit, onClose, onSave }) {
+  const [qtes, setQtes] = useState(cmd.items.map((it) => it.qte));
+  const total = cmd.items.reduce((s, it, i) => {
+    const p = produits.find((x) => x.id === it.produitId);
+    return s + (p ? p.prix * Number(qtes[i] || 0) : 0);
+  }, 0);
+  const totalCommande = cmd.items.reduce((s, it) => {
+    const p = produits.find((x) => x.id === it.produitId);
+    return s + (p ? p.prix * Number(it.qte || 0) : 0);
+  }, 0);
+  return (
+    <Modal title="Confirmer la livraison" onClose={onClose}>
+      <p className="text-xs mb-3" style={{ color: C.inkSoft }}>
+        Ajuste les quantités si elles diffèrent de la commande initiale (rupture de stock, ajout…). Le montant se recalcule automatiquement.
+      </p>
+      {cmd.items.map((it, i) => (
+        <Field key={i} label={`${nomProduit(it.produitId)} — commandé : ${it.qte}`}>
+          <input type="number" min="0" value={qtes[i]}
+            onChange={(e) => setQtes(qtes.map((q, idx) => idx === i ? e.target.value : q))}
+            className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+        </Field>
+      ))}
+      <div className="rounded-xl px-3 py-2.5 mb-3 text-xs flex items-center justify-between" style={{ background: C.bg }}>
+        <span style={{ color: C.inkSoft }}>Montant commandé : {fcfa(totalCommande)}</span>
+        <span className="mono font-semibold" style={{ color: total !== totalCommande ? C.gold : C.greenDeep }}>Montant livré : {fcfa(total)}</span>
+      </div>
+      <button onClick={() => onSave(cmd.items.map((it, i) => ({ ...it, qte: Number(qtes[i] || 0) })))}
+        className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
+        Confirmer la livraison
       </button>
     </Modal>
   );
@@ -3875,6 +4033,7 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
   const [msgMdp, setMsgMdp] = useState(null);
   const [zoneId, setZoneId] = useState("bouafle");
   const [emballage, setEmballage] = useState(false);
+  const [clientVueComparatif, setClientVueComparatif] = useState("mois");
 
   const mesCommandes = commandes.filter((c) => c.clientId === activeClientId);
   const mesRecus = (documents || []).filter((d) => d.type === "recu" && d.clientId === activeClientId);
@@ -3970,6 +4129,51 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
             </div>
           </div>
         </div>
+
+        {/* COMPARATIF MES ACHATS PAR MOIS/ANNÉE */}
+        {mesCommandes.length > 0 && (() => {
+          const parMois = {};
+          mesCommandes.forEach((c) => {
+            const k = c.date.slice(0, 7);
+            parMois[k] = (parMois[k] || 0) + montantCommande(c);
+          });
+          const parAnnee = {};
+          Object.keys(parMois).forEach((k) => {
+            const an = k.slice(0, 4);
+            parAnnee[an] = (parAnnee[an] || 0) + parMois[k];
+          });
+          const donnees = clientVueComparatif === "mois"
+            ? Object.keys(parMois).sort().slice(-12).map((k) => ({ cle: k, label: new Date(k + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" }), total: parMois[k] }))
+            : Object.keys(parAnnee).sort().map((an) => ({ cle: an, label: an, total: parAnnee[an] }));
+          const max = Math.max(1, ...donnees.map((d) => d.total));
+          return (
+            <div className="rounded-2xl p-5 mb-8" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <h3 className="font-bold" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Mes achats</h3>
+                <div className="flex rounded-lg overflow-hidden" style={{ border: `1px solid ${C.border}` }}>
+                  {["mois", "annee"].map((v) => (
+                    <button key={v} onClick={() => setClientVueComparatif(v)}
+                      className="px-3 py-1.5 text-xs font-semibold"
+                      style={{ background: clientVueComparatif === v ? C.green : "transparent", color: clientVueComparatif === v ? "#fff" : C.inkSoft }}>
+                      {v === "mois" ? "Par mois" : "Par année"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2.5">
+                {donnees.slice().reverse().map((d) => (
+                  <div key={d.cle} className="flex items-center gap-2">
+                    <span className="text-xs capitalize w-28 shrink-0" style={{ color: C.inkSoft }}>{d.label}</span>
+                    <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: C.bg }}>
+                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, d.total / max * 100)}%`, background: C.greenDeep }} />
+                    </div>
+                    <span className="mono text-[11px] w-20 text-right shrink-0" style={{ color: C.greenDeep }}>{fcfa(d.total)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* RÉCAP COMMANDES */}
         <h3 className="font-bold mb-3" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Mes commandes</h3>
