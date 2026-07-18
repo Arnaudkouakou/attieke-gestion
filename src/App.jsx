@@ -655,6 +655,7 @@ export default function App() {
     }
     updateCommandes(next);
     genererRecuAuto(clientId, null, lignesRecu, soldeAvant, Number(montant), Math.max(0, soldeAvant - Number(montant)), moyen);
+    notifierGerant("Paiement reçu", `Versement de ${fcfa(Number(montant))} reçu de ${nomClient(clientId)} (${moyen}), réparti sur son solde. Reste à payer : ${fcfa(Math.max(0, soldeAvant - Number(montant)))}.`);
   };
 
   const nomClient = (id) => clients.find((c) => c.id === id)?.nom || "—";
