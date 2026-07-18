@@ -406,6 +406,7 @@ export default function App() {
   const [personnelEdit, setPersonnelEdit] = useState(null); // employé en cours de modification
   const [ficheEmploi, setFicheEmploi] = useState(null); // employé dont on affiche la fiche d'emploi
   const [fichePaie, setFichePaie] = useState(null); // employé dont on affiche la fiche de paie
+  const [paieAnterieure, setPaieAnterieure] = useState(null); // employé pour qui on ajoute une paie d'un jour antérieur
   const [showMaterielModal, setShowMaterielModal] = useState(false);
   const [showAchatModal, setShowAchatModal] = useState(false);
   const [editAchat, setEditAchat] = useState(null);
@@ -541,8 +542,11 @@ export default function App() {
   const updatePaies = (next) => { setPaies(next); saveKey("attieke:paies", next); };
 
   // GÉNÉRATION AUTOMATIQUE DES PAIES
-  // Pour chaque journée écoulée (salaire journalier) ou mois écoulé (salaire mensuel),
-  // une ligne de paie est créée, marquée "payé" par défaut. Le gérant peut la basculer en "non payé".
+  // Pour chaque journée écoulée (salaire journalier) ou mois écoulé (salaire mensuel) DEPUIS
+  // L'ENREGISTREMENT DE L'EMPLOYÉ DANS L'APP (jamais avant, même si son embauche réelle est
+  // plus ancienne — ces journées passées sont déjà réglées en dehors de cette plateforme),
+  // une ligne de paie est créée, marquée "non payé" par défaut — le gérant la bascule
+  // en "payé" seulement quand le versement a réellement eu lieu.
   useEffect(() => {
     if (loading || personnel.length === 0) return;
     const aujourdHui = todayISO();
@@ -551,10 +555,10 @@ export default function App() {
 
     personnel.forEach((emp) => {
       const type = emp.typePaie || "mensuel";
-      // Début de la génération : date d'embauche, sans remonter à plus de 90 jours
-      const bornebasse = new Date(); bornebasse.setDate(bornebasse.getDate() - 90);
-      let debut = emp.dateEmbauche ? new Date(emp.dateEmbauche) : bornebasse;
-      if (debut < bornebasse) debut = bornebasse;
+      // Les paies ne sont générées qu'à partir de l'enregistrement de l'employé sur cette plateforme,
+      // jamais avant : la date d'embauche réelle est purement informative. Si l'info d'enregistrement
+      // n'existe pas encore (employé créé avant cette mise à jour), on démarre à aujourd'hui par sécurité.
+      const debut = emp.dateAjoutApp ? new Date(emp.dateAjoutApp) : new Date();
 
       if (type === "journalier") {
         const d = new Date(debut);
@@ -563,7 +567,7 @@ export default function App() {
           const periode = d.toISOString().slice(0, 10);
           const id = `${emp.id}:${periode}`;
           if (!existe.has(id)) {
-            nouvelles.push({ id, employeId: emp.id, type: "journalier", periode, montant: Number(emp.salaire) || 0, statut: "payé" });
+            nouvelles.push({ id, employeId: emp.id, type: "journalier", periode, montant: Number(emp.salaire) || 0, statut: "non payé" });
           }
           d.setDate(d.getDate() + 1);
         }
@@ -575,7 +579,7 @@ export default function App() {
           const periode = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
           const id = `${emp.id}:${periode}`;
           if (!existe.has(id)) {
-            nouvelles.push({ id, employeId: emp.id, type: "mensuel", periode, montant: Number(emp.salaire) || 0, statut: "payé" });
+            nouvelles.push({ id, employeId: emp.id, type: "mensuel", periode, montant: Number(emp.salaire) || 0, statut: "non payé" });
           }
           d.setMonth(d.getMonth() + 1);
         }
@@ -1506,6 +1510,25 @@ export default function App() {
                             style={{ background: C.bgAlt, color: C.ink }}>
                             <Receipt size={12} /> Fiche de paie
                           </button>
+                          {(p.typePaie || "mensuel") === "journalier" && (
+                            <button onClick={() => setPaieAnterieure(p)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                              style={{ background: C.bgAlt, color: C.ink }}>
+                              <CalendarDays size={12} /> Jour antérieur
+                            </button>
+                          )}
+                          {paies.some((pa) => pa.employeId === p.id && pa.statut === "payé") && (
+                            <button
+                              onClick={() => setConfirmation({
+                                message: `Repasser TOUT l'historique de paie de ${p.nom} en "non payé" ? Utile si des journées ont été enregistrées "payées" par erreur. Tu pourras ensuite remarquer une par une celles réellement versées.`,
+                                action: () => updatePaies(paies.map((pa) => pa.employeId === p.id ? { ...pa, statut: "non payé" } : pa)),
+                                toastMessage: "Historique de paie corrigé",
+                              })}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                              style={{ background: C.goldSoft, color: "#8A5D14" }}>
+                              <AlertCircle size={12} /> Corriger les paies
+                            </button>
+                          )}
                           <button
                             onClick={() => setConfirmation({
                               message: `Supprimer l'employé(e) ${p.nom} ?`,
@@ -1526,7 +1549,7 @@ export default function App() {
                   <>
                     <h3 className="font-bold mt-6 mb-3" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Journal des paies</h3>
                     <p className="text-xs mb-3" style={{ color: C.inkSoft }}>
-                      Chaque journée (ou mois) écoulée est enregistrée automatiquement comme payée. Touche le statut pour le changer : <span style={{ color: C.greenDeep, fontWeight: 600 }}>Payé</span> → <span style={{ color: C.chili, fontWeight: 600 }}>Non payé</span> → <span style={{ fontWeight: 600 }}>Repos</span> (journée non travaillée, non comptée).
+                      Chaque journée (ou mois) écoulée est enregistrée automatiquement, marquée "non payé" par défaut. Touche le statut pour le changer : <span style={{ color: C.chili, fontWeight: 600 }}>Non payé</span> → <span style={{ color: C.greenDeep, fontWeight: 600 }}>Payé</span> → <span style={{ fontWeight: 600 }}>Repos</span> (journée non travaillée, non comptée) seulement quand le versement a réellement eu lieu.
                     </p>
                     <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                       {paies
@@ -2071,6 +2094,14 @@ export default function App() {
             afficherToast("Livraison enregistrée");
           }} />
       )}
+      {paieAnterieure && (
+        <PaieAnterieureModal emp={paieAnterieure} paies={paies} onClose={() => setPaieAnterieure(null)}
+          onSave={(entree) => {
+            updatePaies([...paies.filter((pa) => pa.id !== entree.id), entree]);
+            setPaieAnterieure(null);
+            afficherToast("Journée antérieure ajoutée à la paie");
+          }} />
+      )}
       {showDepenseModal && (
         <AddDepenseModal onClose={() => setShowDepenseModal(false)}
           onSave={(d) => { updateDepenses([...depenses, d]); setShowDepenseModal(false); afficherToast("Dépense enregistrée"); }} />
@@ -2120,7 +2151,7 @@ export default function App() {
                   className="py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
                   Annuler
                 </button>
-                <button onClick={() => { confirmation.action(); setConfirmation(null); afficherToast("Suppression effectuée"); }}
+                <button onClick={() => { confirmation.action(); setConfirmation(null); afficherToast(confirmation.toastMessage || "Suppression effectuée"); }}
                   className="py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.chili }}>
                   Confirmer
                 </button>
@@ -2252,6 +2283,36 @@ function AddProduitModal({ onClose, onSave }) {
 // Saisie des quantités réellement livrées (peuvent différer de la commande initiale,
 // notamment quand celle-ci a été passée par le client lui-même). Les montants se
 // recalculent automatiquement à partir des quantités livrées.
+// Permet au gérant d'inclure volontairement, au cas par cas, un jour antérieur à
+// l'enregistrement de l'employé dans l'app (par défaut ces jours ne sont jamais comptés).
+function PaieAnterieureModal({ emp, paies, onClose, onSave }) {
+  const [date, setDate] = useState(todayISO());
+  const [montant, setMontant] = useState(emp.salaire || "");
+  const [statut, setStatut] = useState("payé");
+  const dejaExistante = paies.some((pa) => pa.id === `${emp.id}:${date}`);
+  return (
+    <Modal title={`Jour antérieur — ${emp.nom}`} onClose={onClose}>
+      <p className="text-xs mb-3" style={{ color: C.inkSoft }}>
+        Par défaut, seules les journées à partir de l'enregistrement de {emp.nom} dans l'app sont comptabilisées. Utilise ce formulaire uniquement si tu veux volontairement inclure un jour antérieur (régularisation, rattrapage…).
+      </p>
+      <Field label="Date du jour concerné"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Montant (FCFA)"><input type="number" value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Statut">
+        <select value={statut} onChange={(e) => setStatut(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle}>
+          <option value="payé">Payé</option><option value="non payé">Non payé</option>
+        </select>
+      </Field>
+      {dejaExistante && (
+        <p className="text-[11px] mb-3 font-semibold" style={{ color: C.gold }}>⚠️ Une entrée existe déjà pour ce jour — elle sera remplacée.</p>
+      )}
+      <button disabled={!montant} onClick={() => onSave({ id: `${emp.id}:${date}`, employeId: emp.id, type: "journalier", periode: date, montant: Number(montant) || 0, statut })}
+        className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
+        Ajouter cette journée
+      </button>
+    </Modal>
+  );
+}
+
 function LivraisonModal({ cmd, produits, nomProduit, onClose, onSave }) {
   const [qtes, setQtes] = useState(cmd.items.map((it) => it.qte));
   const total = cmd.items.reduce((s, it, i) => {
@@ -2782,12 +2843,15 @@ function PersonnelModal({ initial, onClose, onSave }) {
       <Field label="Date de naissance"><input type="date" value={dateNaissance} onChange={(e) => setDateNaissance(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="N° pièce d'identité (CNI…)"><input value={cni} onChange={(e) => setCni(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Contact d'urgence (nom + téléphone)"><input value={contactUrgence} onChange={(e) => setContactUrgence(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
-      <Field label="Date d'embauche"><input type="date" value={dateEmbauche} onChange={(e) => setDateEmbauche(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Date d'embauche (informative — les paies ne sont générées qu'à partir de l'enregistrement dans l'app)">
+        <input type="date" value={dateEmbauche} onChange={(e) => setDateEmbauche(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
 
       <button disabled={!nom || !poste}
         onClick={() => onSave({
           id: initial?.id || "e" + Date.now(),
           nom, poste, tel, salaire: Number(salaire) || 0, dateEmbauche,
+          dateAjoutApp: initial?.dateAjoutApp || todayISO(),
           adresse, dateNaissance, cni, contactUrgence, photo, typePaie,
         }, modeSalaire)}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
