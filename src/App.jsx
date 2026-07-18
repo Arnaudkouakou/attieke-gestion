@@ -748,6 +748,9 @@ export default function App() {
       });
     }
     updateCommandes(next);
+    if (clients.some((cl) => cl.id === clientId && cl.versementSignale)) {
+      updateClients(clients.map((cl) => cl.id === clientId ? { ...cl, versementSignale: null } : cl));
+    }
     genererRecuAuto(clientId, null, lignesRecu, soldeAvant, Number(montant), Math.max(0, soldeAvant - Number(montant)), moyen);
     setNotifConfirm({
       message: `Versement de ${fcfa(Number(montant))} bien enregistré.`,
@@ -1215,6 +1218,40 @@ export default function App() {
                             <div className="mono text-sm font-semibold" style={{ color: du > 0 ? C.chili : C.green }}>
                               {du > 0 ? `Doit ${fcfa(du)}` : "À jour"}
                             </div>
+                            {c.versementSignale && (
+                              <div className="mt-1.5 rounded-lg px-2 py-1.5" style={{ background: C.goldSoft }}>
+                                <div className="text-[11px] font-semibold" style={{ color: "#8A5D14" }}>
+                                  💰 Signale {fcfa(c.versementSignale.montant)} ({c.versementSignale.moyen})
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-1">
+                                  <button
+                                    onClick={() => encaisserSurSolde(c.id, c.versementSignale.montant, c.versementSignale.moyen)}
+                                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold"
+                                    style={{ background: C.green, color: "#fff" }}>
+                                    <Check size={11} /> Confirmer
+                                  </button>
+                                  <button
+                                    onClick={() => setConfirmation({
+                                      message: `Annuler ce versement signalé de ${fcfa(c.versementSignale.montant)} (${c.versementSignale.moyen}) ? ${c.nom} sera prévenu(e) que l'entreprise n'a rien reçu.`,
+                                      action: () => {
+                                        const infos = c.versementSignale;
+                                        updateClients(clients.map((x) => x.id === c.id ? {
+                                          ...x, versementSignale: null,
+                                          messageGerant: {
+                                            texte: `Nous n'avons pas reçu votre versement signalé de ${fcfa(infos.montant)} par ${infos.moyen} (daté du ${fmtDate(infos.date)}). Cet encaissement a été annulé. Merci de nous contacter si vous pensez qu'il s'agit d'une erreur.`,
+                                            date: todayISO(),
+                                          },
+                                        } : x));
+                                      },
+                                      toastMessage: "Versement annulé, le client a été prévenu",
+                                    })}
+                                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold"
+                                    style={{ background: C.chiliSoft, color: C.chili }}>
+                                    <X size={11} /> Annuler
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                             {du > 0 && (
                               <button
                                 onClick={() => setEncaisserClient({ client: c, du })}
@@ -1426,12 +1463,33 @@ export default function App() {
                               {cmd.statut !== "payé" && (
                                 <>
                                   {typeof cmd.paiementSignale === "object" && cmd.paiementSignale?.montant > 0 && (
+                                    <>
                                     <button
                                       onClick={() => encaisser(cmd.id, Math.min(cmd.paiementSignale.montant, montantReste(cmd)), cmd.paiementSignale.moyen)}
                                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
                                       style={{ background: C.green }}>
                                       <Check size={12} /> Confirmer {fcfa(Math.min(cmd.paiementSignale.montant, montantReste(cmd)))}
                                     </button>
+                                    <button
+                                      onClick={() => setConfirmation({
+                                        message: `Annuler ce versement signalé de ${fcfa(cmd.paiementSignale.montant)} (${cmd.paiementSignale.moyen}) ? Le client sera prévenu que l'entreprise n'a rien reçu.`,
+                                        action: () => {
+                                          const infos = cmd.paiementSignale;
+                                          updateCommandes(commandes.map((x) => x.id === cmd.id ? { ...x, paiementSignale: false } : x));
+                                          updateClients(clients.map((cl) => cl.id === cmd.clientId ? {
+                                            ...cl, messageGerant: {
+                                              texte: `Nous n'avons pas reçu votre versement signalé de ${fcfa(infos.montant)} par ${infos.moyen} (daté du ${fmtDate(infos.date)}). Cet encaissement a été annulé. Merci de nous contacter si vous pensez qu'il s'agit d'une erreur.`,
+                                              date: todayISO(),
+                                            },
+                                          } : cl));
+                                        },
+                                        toastMessage: "Versement annulé, le client a été prévenu",
+                                      })}
+                                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                      style={{ background: C.chiliSoft, color: C.chili }}>
+                                      <X size={12} /> Annuler
+                                    </button>
+                                    </>
                                   )}
                                   <button
                                     onClick={() => setEncaisserCmd(cmd)}
@@ -5235,6 +5293,9 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
   const [signalerPour, setSignalerPour] = useState(null); // id de la commande en cours de signalement
   const [montantSignale, setMontantSignale] = useState("");
   const [moyenSignale, setMoyenSignale] = useState("Mobile Money");
+  const [showVerserSolde, setShowVerserSolde] = useState(false);
+  const [montantVerserSolde, setMontantVerserSolde] = useState("");
+  const [moyenVerserSolde, setMoyenVerserSolde] = useState("Mobile Money");
   const [showMdp, setShowMdp] = useState(false);
   const [mdpActuel, setMdpActuel] = useState("");
   const [mdpNouveau, setMdpNouveau] = useState("");
@@ -5312,6 +5373,20 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
           </Field>
         )}
 
+        {client?.messageGerant && (
+          <div className="rounded-2xl p-4 my-4 flex items-start gap-3" style={{ background: C.chiliSoft, border: `1px solid ${C.chili}` }}>
+            <AlertCircle size={18} style={{ color: C.chili, flexShrink: 0, marginTop: 2 }} />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold mb-1" style={{ color: C.chili }}>Message de HÉLÈNE Multiservices</div>
+              <p className="text-sm" style={{ color: C.ink }}>{client.messageGerant.texte}</p>
+            </div>
+            <button onClick={() => updateClients(clients.map((c) => c.id === activeClientId ? { ...c, messageGerant: null } : c))}
+              className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(0,0,0,0.06)", color: C.chili }}>
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
         <div className="grid md:grid-cols-3 gap-4 my-6">
           <div className="md:col-span-2 rounded-2xl p-5" style={{ background: C.card, border: `1px solid ${C.border}` }}>
             <h3 className="font-bold mb-1" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Bonjour {client?.nom}</h3>
@@ -5320,6 +5395,54 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
               <div className="flex-1 rounded-xl p-4" style={{ background: totalDu > 0 ? C.chiliSoft : C.greenSoft }}>
                 <div className="text-xs font-semibold" style={{ color: totalDu > 0 ? C.chili : C.greenDeep }}>Solde dû</div>
                 <div className="text-xl font-bold mono" style={{ color: totalDu > 0 ? C.chili : C.greenDeep }}>{fcfa(totalDu)}</div>
+                {totalDu > 0 && !client?.versementSignale && !showVerserSolde && (
+                  <button onClick={() => setShowVerserSolde(true)}
+                    className="mt-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold" style={{ background: C.green, color: "#fff" }}>
+                    <Wallet size={11} /> Signaler un versement
+                  </button>
+                )}
+                {client?.versementSignale && (
+                  <div className="mt-2 text-[11px] font-semibold" style={{ color: C.chili }}>
+                    <Clock size={11} className="inline mr-1" />
+                    Versement de {fcfa(client.versementSignale.montant)} signalé — en attente de confirmation
+                  </div>
+                )}
+                {showVerserSolde && (
+                  <div className="mt-2 space-y-2">
+                    <input type="number" min="1" max={totalDu} value={montantVerserSolde}
+                      onChange={(e) => setMontantVerserSolde(e.target.value)}
+                      placeholder="Montant versé" className="w-full px-2.5 py-1.5 rounded-lg text-xs" style={inputStyle} />
+                    <select value={moyenVerserSolde} onChange={(e) => setMoyenVerserSolde(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg text-xs" style={inputStyle}>
+                      <option>Mobile Money</option><option>Espèces</option><option>Virement</option>
+                    </select>
+                    <div className="flex gap-2">
+                      <button
+                        disabled={!(Number(montantVerserSolde) > 0)}
+                        onClick={() => {
+                          updateClients(clients.map((c) => c.id === activeClientId ? { ...c, versementSignale: { montant: Number(montantVerserSolde), moyen: moyenVerserSolde, date: todayISO() } } : c));
+                          if (!isGerant && ajouterNotif) {
+                            ajouterNotif(`💰 ${client?.nom || "Un client"} signale un versement de ${fcfa(Number(montantVerserSolde))} sur son solde (${moyenVerserSolde})`);
+                            if (setNotifConfirm) {
+                              setNotifConfirm({
+                                message: "Votre versement a bien été signalé ! Il sera automatiquement réparti sur vos commandes les plus anciennes non soldées, dès confirmation.",
+                                label: "Notifier HÉLÈNE Multiservices par WhatsApp",
+                                action: () => notifierGerant("Versement signalé (solde client)", `${client?.nom || "Un client"} signale un versement de ${fcfa(Number(montantVerserSolde))} (${moyenVerserSolde}) sur son solde total.`),
+                              });
+                            }
+                          }
+                          setShowVerserSolde(false); setMontantVerserSolde("");
+                        }}
+                        className="flex-1 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
+                        Envoyer
+                      </button>
+                      <button onClick={() => setShowVerserSolde(false)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                        Annuler
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex-1 rounded-xl p-4" style={{ background: C.bgAlt }}>
                 <div className="text-xs font-semibold" style={{ color: C.inkSoft }}>Commandes passées</div>
