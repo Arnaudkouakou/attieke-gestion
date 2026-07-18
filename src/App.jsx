@@ -1799,7 +1799,11 @@ export default function App() {
       )}
       {showCommandeModal && (
         <AddCommandeModal clients={clients} produits={produits} onClose={() => setShowCommandeModal(false)}
-          onSave={(c) => { updateCommandes([...commandes, c]); setShowCommandeModal(false); }} />
+          onSave={(c) => {
+              updateCommandes([...commandes, c]);
+              setShowCommandeModal(false);
+              notifierGerant("Nouvelle commande", `Nouvelle commande de ${nomClient(c.clientId)} : ${fcfa(montantCommande(c))} (${c.statut}).`);
+            }}
       )}
       {showDocModal && (
         <AddDocModal
