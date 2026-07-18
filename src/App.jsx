@@ -3445,9 +3445,6 @@ function LoginScreen({ clients, pin: pinAttendu = PIN_GERANT, recup, onResetPin,
                 className="w-full text-center text-xs mt-3 font-semibold" style={{ color: C.greenDeep }}>
                 Code oublié ?
               </button>
-              <p className="text-[11px] text-center mt-2" style={{ color: C.inkSoft }}>
-                {pinAttendu === "1234" ? "Code du prototype : 1234 (à changer dans Paramètres)" : ""}
-              </p>
             </>
             )
           ) : (
