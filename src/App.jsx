@@ -1517,12 +1517,12 @@ export default function App() {
                               <CalendarDays size={12} /> Jour antérieur
                             </button>
                           )}
-                          {paies.some((pa) => pa.employeId === p.id && pa.statut === "payé") && (
+                          {paies.some((pa) => pa.employeId === p.id && !pa.manuel && pa.periode < (p.dateAjoutApp || todayISO())) && (
                             <button
                               onClick={() => setConfirmation({
-                                message: `Repasser TOUT l'historique de paie de ${p.nom} en "non payé" ? Utile si des journées ont été enregistrées "payées" par erreur. Tu pourras ensuite remarquer une par une celles réellement versées.`,
-                                action: () => updatePaies(paies.map((pa) => pa.employeId === p.id ? { ...pa, statut: "non payé" } : pa)),
-                                toastMessage: "Historique de paie corrigé",
+                                message: `Retirer de la comptabilité de ${p.nom} toutes les journées antérieures à son enregistrement dans l'app ? Ces journées sont déjà réglées en dehors de la plateforme et ne doivent pas apparaître comme dues. (Les jours antérieurs que tu as ajoutés volontairement ne sont pas concernés.)`,
+                                action: () => updatePaies(paies.filter((pa) => !(pa.employeId === p.id && !pa.manuel && pa.periode < (p.dateAjoutApp || todayISO())))),
+                                toastMessage: "Journées antérieures retirées",
                               })}
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
                               style={{ background: C.goldSoft, color: "#8A5D14" }}>
@@ -2305,7 +2305,7 @@ function PaieAnterieureModal({ emp, paies, onClose, onSave }) {
       {dejaExistante && (
         <p className="text-[11px] mb-3 font-semibold" style={{ color: C.gold }}>⚠️ Une entrée existe déjà pour ce jour — elle sera remplacée.</p>
       )}
-      <button disabled={!montant} onClick={() => onSave({ id: `${emp.id}:${date}`, employeId: emp.id, type: "journalier", periode: date, montant: Number(montant) || 0, statut })}
+      <button disabled={!montant} onClick={() => onSave({ id: `${emp.id}:${date}`, employeId: emp.id, type: "journalier", periode: date, montant: Number(montant) || 0, statut, manuel: true })}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
         Ajouter cette journée
       </button>
