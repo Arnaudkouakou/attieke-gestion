@@ -220,8 +220,7 @@ function telWhatsApp(tel) {
   const digits = (tel || "").replace(/\D/g, "");
   if (!digits) return null;
   if (digits.startsWith("225")) return digits;
-  if (digits.startsWith("0")) return "225" + digits.slice(1);
-  return "225" + digits;
+  return "225" + digits; // le 0 initial fait partie du numéro depuis la réforme de 2021, on le garde
 }
 
 // Ouvre WhatsApp pré-rempli vers le client concerné (utilisé quand c'est le gérant qui agit)
