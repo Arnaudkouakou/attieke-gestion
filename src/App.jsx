@@ -624,6 +624,7 @@ export default function App() {
     updateCommandes(commandes.map((c) => c.id === cmdId ? { ...c, paiements, statut, paiementSignale: false } : c));
 
     genererRecuAuto(cmd.clientId, cmd.id, lignesDeCommande(cmd), total, Number(montant), Math.max(0, total - paye), moyen);
+    notifierGerant("Paiement reçu", `Paiement de ${fcfa(Number(montant))} reçu de ${nomClient(cmd.clientId)} (${moyen}). Reste à payer : ${fcfa(Math.max(0, total - paye))}.`);
   };
 
   // Encaissement global sur le solde d'un client : le montant est réparti
