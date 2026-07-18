@@ -407,6 +407,13 @@ export default function App() {
   const [ficheEmploi, setFicheEmploi] = useState(null); // employé dont on affiche la fiche d'emploi
   const [fichePaie, setFichePaie] = useState(null); // employé dont on affiche la fiche de paie
   const [paieAnterieure, setPaieAnterieure] = useState(null); // employé pour qui on ajoute une paie d'un jour antérieur
+  const [filtrePersonnel, setFiltrePersonnel] = useState("actifs"); // "actifs" | "anciens"
+  const [showFichePersonnel, setShowFichePersonnel] = useState(false);
+  const [filtreClients, setFiltreClients] = useState("actifs"); // "actifs" | "anciens"
+  const [showFicheClients, setShowFicheClients] = useState(false);
+  const [filtreMateriel, setFiltreMateriel] = useState("service"); // "service" | "gate"
+  const [showFicheMateriel, setShowFicheMateriel] = useState(false);
+  const [showFicheCommandes, setShowFicheCommandes] = useState(false);
   const [showMaterielModal, setShowMaterielModal] = useState(false);
   const [showAchatModal, setShowAchatModal] = useState(false);
   const [editAchat, setEditAchat] = useState(null);
@@ -554,6 +561,7 @@ export default function App() {
     const existe = new Set(paies.map((p) => p.id));
 
     personnel.forEach((emp) => {
+      if (emp.actif === false) return; // employé parti : plus aucune nouvelle paie générée
       const type = emp.typePaie || "mensuel";
       // Les paies ne sont générées qu'à partir de l'enregistrement de l'employé sur cette plateforme,
       // jamais avant : la date d'embauche réelle est purement informative. Si l'info d'enregistrement
@@ -1060,14 +1068,29 @@ export default function App() {
 
             {section === "clients" && (
               <div>
-                <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
                   <div>
                     <h1 className="text-2xl font-bold" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Clients</h1>
-                    <p className="text-sm" style={{ color: C.inkSoft }}>{clients.length} client(s) enregistré(s)</p>
+                    <p className="text-sm" style={{ color: C.inkSoft }}>{clients.filter((c) => c.actif !== false).length} client(s) actif(s)</p>
                   </div>
-                  <button onClick={() => setShowClientModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
-                    <Plus size={16} /> Nouveau client
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setShowFicheClients(true)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                      <Printer size={15} /> Fiche clients
+                    </button>
+                    <button onClick={() => setShowClientModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
+                      <Plus size={16} /> Nouveau client
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex rounded-lg overflow-hidden mb-4 w-fit" style={{ border: `1px solid ${C.border}` }}>
+                  {[["actifs", "Actifs"], ["anciens", "Anciens clients"]].map(([v, label]) => (
+                    <button key={v} onClick={() => setFiltreClients(v)}
+                      className="px-3 py-1.5 text-xs font-semibold"
+                      style={{ background: filtreClients === v ? C.green : "transparent", color: filtreClients === v ? "#fff" : C.inkSoft }}>
+                      {label}
+                    </button>
+                  ))}
                 </div>
 
                 <input
@@ -1078,6 +1101,7 @@ export default function App() {
 
                 <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                   {clients
+                    .filter((c) => filtreClients === "actifs" ? c.actif !== false : c.actif === false)
                     .filter((c) => {
                       const q = rechercheClients.trim().toLowerCase();
                       if (!q) return true;
@@ -1090,18 +1114,44 @@ export default function App() {
                       <div key={c.id} className="flex items-center justify-between p-4" style={{ borderBottom: `1px solid ${C.border}` }}>
                         <div className="flex items-center gap-3">
                           {c.photo ? (
-                            <img src={c.photo} alt={c.nom} className="w-10 h-10 rounded-full object-cover shrink-0" style={{ border: `2px solid ${C.green}` }} />
+                            <img src={c.photo} alt={c.nom} className="w-10 h-10 rounded-full object-cover shrink-0" style={{ border: `2px solid ${c.actif === false ? C.border : C.green}` }} />
                           ) : (
                             <ClaieBadge size={38}><Users size={16} /></ClaieBadge>
                           )}
                           <div>
-                            <div className="font-semibold text-sm" style={{ color: C.ink }}>{c.nom}</div>
+                            <div className="font-semibold text-sm flex items-center gap-2" style={{ color: C.ink }}>
+                              {c.nom}
+                              {c.actif === false && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: C.bgAlt, color: C.inkSoft }}>ANCIEN</span>
+                              )}
+                            </div>
                             <div className="text-xs" style={{ color: C.inkSoft }}>{c.tel} · {c.adresse} · {c.type}</div>
-                            <button onClick={() => setClientEdit(c)}
-                              className="mt-1.5 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold"
-                              style={{ background: C.greenSoft, color: C.greenDeep }}>
-                              <UserCog size={11} /> Modifier
-                            </button>
+                            <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                              <button onClick={() => setClientEdit(c)}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold"
+                                style={{ background: C.greenSoft, color: C.greenDeep }}>
+                                <UserCog size={11} /> Modifier
+                              </button>
+                              {c.actif === false ? (
+                                <button
+                                  onClick={() => { updateClients(clients.map((x) => x.id === c.id ? { ...x, actif: true, dateDepart: null } : x)); afficherToast(`${c.nom} réactivé(e)`); }}
+                                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold"
+                                  style={{ background: C.greenSoft, color: C.greenDeep }}>
+                                  <UserCog size={11} /> Réactiver
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => setConfirmation({
+                                    message: `Marquer ${c.nom} comme ancien(ne) client(e) ? Son historique reste conservé.`,
+                                    action: () => updateClients(clients.map((x) => x.id === c.id ? { ...x, actif: false, dateDepart: todayISO() } : x)),
+                                    toastMessage: `${c.nom} marqué(e) comme ancien(ne) client(e)`,
+                                  })}
+                                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold"
+                                  style={{ background: C.bgAlt, color: C.ink }}>
+                                  <LogOut size={11} /> Marquer ancien
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
@@ -1198,14 +1248,19 @@ export default function App() {
 
             {section === "commandes" && (
               <div>
-                <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
                   <div>
                     <h1 className="text-2xl font-bold" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Commandes</h1>
                     <p className="text-sm" style={{ color: C.inkSoft }}>Suivi des commandes et paiements</p>
                   </div>
-                  <button onClick={() => setShowCommandeModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
-                    <Plus size={16} /> Nouvelle commande
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setShowFicheCommandes(true)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                      <Printer size={15} /> Fiche commandes
+                    </button>
+                    <button onClick={() => setShowCommandeModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
+                      <Plus size={16} /> Nouvelle commande
+                    </button>
+                  </div>
                 </div>
                 <input
                   value={rechercheCommandes}
@@ -1450,35 +1505,59 @@ export default function App() {
                   <div>
                     <h1 className="text-2xl font-bold" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Personnel</h1>
                     <p className="text-sm" style={{ color: C.inkSoft }}>
-                      {personnel.length} employé(s) · payé : {fcfa(paies.filter((p) => p.statut === "payé").reduce((s, p) => s + p.montant, 0))} · à verser : <span style={{ color: paies.some((p) => p.statut === "non payé") ? C.chili : C.inkSoft }}>{fcfa(paies.filter((p) => p.statut === "non payé").reduce((s, p) => s + p.montant, 0))}</span>
+                      {personnel.filter((p) => p.actif !== false).length} employé(s) actif(s) · payé : {fcfa(paies.filter((p) => p.statut === "payé").reduce((s, p) => s + p.montant, 0))} · à verser : <span style={{ color: paies.some((p) => p.statut === "non payé") ? C.chili : C.inkSoft }}>{fcfa(paies.filter((p) => p.statut === "non payé").reduce((s, p) => s + p.montant, 0))}</span>
                     </p>
                   </div>
-                  <button onClick={() => setShowPersonnelModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
-                    <Plus size={16} /> Nouvel employé
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setShowFichePersonnel(true)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                      <Printer size={15} /> Fiche du personnel
+                    </button>
+                    <button onClick={() => setShowPersonnelModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
+                      <Plus size={16} /> Nouvel employé
+                    </button>
+                  </div>
                 </div>
 
-                {personnel.length === 0 ? (
+                <div className="flex rounded-lg overflow-hidden mb-4 w-fit" style={{ border: `1px solid ${C.border}` }}>
+                  {[["actifs", "Actifs"], ["anciens", "Anciens employés"]].map(([v, label]) => (
+                    <button key={v} onClick={() => setFiltrePersonnel(v)}
+                      className="px-3 py-1.5 text-xs font-semibold"
+                      style={{ background: filtrePersonnel === v ? C.green : "transparent", color: filtrePersonnel === v ? "#fff" : C.inkSoft }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {personnel.filter((p) => filtrePersonnel === "actifs" ? p.actif !== false : p.actif === false).length === 0 ? (
                   <div className="rounded-2xl p-8 text-center" style={{ background: C.card, border: `1px dashed ${C.border}` }}>
                     <div className="flex justify-center mb-3"><ClaieBadge size={48}><UserCog size={20} /></ClaieBadge></div>
-                    <p className="text-sm font-semibold mb-1" style={{ color: C.ink }}>Aucun employé enregistré</p>
-                    <p className="text-xs" style={{ color: C.inkSoft }}>Ajoute ton personnel : photo, poste, salaire, contact…</p>
+                    <p className="text-sm font-semibold mb-1" style={{ color: C.ink }}>
+                      {filtrePersonnel === "actifs" ? "Aucun employé actif" : "Aucun ancien employé"}
+                    </p>
+                    <p className="text-xs" style={{ color: C.inkSoft }}>
+                      {filtrePersonnel === "actifs" ? "Ajoute ton personnel : photo, poste, salaire, contact…" : "Les employés partis apparaîtront ici."}
+                    </p>
                   </div>
                 ) : (
                   <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-                    {personnel.map((p) => (
+                    {personnel.filter((p) => filtrePersonnel === "actifs" ? p.actif !== false : p.actif === false).map((p) => (
                       <div key={p.id} className="p-4" style={{ borderBottom: `1px solid ${C.border}` }}>
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-3 min-w-0">
                             {p.photo ? (
                               <img src={p.photo} alt={p.nom}
                                 className="w-12 h-12 rounded-full object-cover shrink-0"
-                                style={{ border: `2px solid ${C.green}` }} />
+                                style={{ border: `2px solid ${p.actif === false ? C.border : C.green}` }} />
                             ) : (
                               <ClaieBadge size={48}><UserCog size={18} /></ClaieBadge>
                             )}
                             <div className="min-w-0">
-                              <div className="font-semibold text-sm" style={{ color: C.ink }}>{p.nom}</div>
+                              <div className="font-semibold text-sm flex items-center gap-2" style={{ color: C.ink }}>
+                                {p.nom}
+                                {p.actif === false && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: C.bgAlt, color: C.inkSoft }}>ANCIEN</span>
+                                )}
+                              </div>
                               <div className="text-xs" style={{ color: C.inkSoft }}>{p.poste}{p.tel ? ` · ${p.tel}` : ""}</div>
                               <div className="text-xs mt-0.5 space-y-0.5" style={{ color: C.inkSoft }}>
                                 {p.adresse && <div>Adresse : {p.adresse}</div>}
@@ -1486,6 +1565,7 @@ export default function App() {
                                 {p.cni && <div>Pièce d'identité : {p.cni}</div>}
                                 {p.contactUrgence && <div>Contact d'urgence : {p.contactUrgence}</div>}
                                 {p.dateEmbauche && <div>Embauché(e) le {fmtDate(p.dateEmbauche)}</div>}
+                                {p.actif === false && p.dateDepart && <div>Parti(e) le {fmtDate(p.dateDepart)}</div>}
                               </div>
                             </div>
                           </div>
@@ -1527,6 +1607,25 @@ export default function App() {
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
                               style={{ background: C.goldSoft, color: "#8A5D14" }}>
                               <AlertCircle size={12} /> Corriger les paies
+                            </button>
+                          )}
+                          {p.actif === false ? (
+                            <button
+                              onClick={() => { updatePersonnel(personnel.map((x) => x.id === p.id ? { ...x, actif: true, dateDepart: null } : x)); afficherToast(`${p.nom} réactivé(e)`); }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                              style={{ background: C.greenSoft, color: C.greenDeep }}>
+                              <UserCog size={12} /> Réactiver
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmation({
+                                message: `Marquer ${p.nom} comme ancien(ne) employé(e) (parti(e)) ? Son historique reste conservé, mais aucune nouvelle paie ne sera générée pour lui/elle.`,
+                                action: () => updatePersonnel(personnel.map((x) => x.id === p.id ? { ...x, actif: false, dateDepart: todayISO() } : x)),
+                                toastMessage: `${p.nom} marqué(e) comme ancien(ne) employé(e)`,
+                              })}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                              style={{ background: C.bgAlt, color: C.ink }}>
+                              <LogOut size={12} /> Marquer comme parti(e)
                             </button>
                           )}
                           <button
@@ -1603,20 +1702,37 @@ export default function App() {
                     <h1 className="text-2xl font-bold" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Matériel</h1>
                     <p className="text-sm" style={{ color: C.inkSoft }}>{materiel.length} équipement(s) répertorié(s)</p>
                   </div>
-                  <button onClick={() => setShowMaterielModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
-                    <Plus size={16} /> Nouvel équipement
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setShowFicheMateriel(true)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                      <Printer size={15} /> Fiche matériel
+                    </button>
+                    <button onClick={() => setShowMaterielModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
+                      <Plus size={16} /> Nouvel équipement
+                    </button>
+                  </div>
                 </div>
 
-                {materiel.length === 0 ? (
+                <div className="flex rounded-lg overflow-hidden mb-4 w-fit" style={{ border: `1px solid ${C.border}` }}>
+                  {[["service", "En service"], ["gate", "Gâté / en panne"]].map(([v, label]) => (
+                    <button key={v} onClick={() => setFiltreMateriel(v)}
+                      className="px-3 py-1.5 text-xs font-semibold"
+                      style={{ background: filtreMateriel === v ? C.green : "transparent", color: filtreMateriel === v ? "#fff" : C.inkSoft }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {materiel.filter((m) => filtreMateriel === "gate" ? m.etat === "En panne" : m.etat !== "En panne").length === 0 ? (
                   <div className="rounded-2xl p-8 text-center" style={{ background: C.card, border: `1px dashed ${C.border}` }}>
                     <div className="flex justify-center mb-3"><ClaieBadge size={48}><Wrench size={20} /></ClaieBadge></div>
-                    <p className="text-sm font-semibold mb-1" style={{ color: C.ink }}>Aucun matériel enregistré</p>
+                    <p className="text-sm font-semibold mb-1" style={{ color: C.ink }}>
+                      {filtreMateriel === "gate" ? "Aucun matériel gâté" : "Aucun matériel en service"}
+                    </p>
                     <p className="text-xs" style={{ color: C.inkSoft }}>Répertorie tes machines : broyeur, presse, cuiseur, bâches, bassines…</p>
                   </div>
                 ) : (
                   <div className="grid md:grid-cols-2 gap-3">
-                    {materiel.map((m) => {
+                    {materiel.filter((m) => filtreMateriel === "gate" ? m.etat === "En panne" : m.etat !== "En panne").map((m) => {
                       const etatCouleurs = {
                         "Bon état": { bg: C.greenSoft, fg: C.greenDeep },
                         "À entretenir": { bg: C.goldSoft, fg: "#8A5D14" },
@@ -2112,6 +2228,18 @@ export default function App() {
           clients={clients} montantCommande={montantCommande} nomClient={nomClient}
           montantPaye={montantPaye} montantReste={montantReste}
           onClose={() => setShowRapport(false)} />
+      )}
+      {showFichePersonnel && (
+        <FichePersonnelModal personnel={personnel} onClose={() => setShowFichePersonnel(false)} />
+      )}
+      {showFicheClients && (
+        <FicheClientsModal clients={clients} commandes={commandes} montantReste={montantReste} onClose={() => setShowFicheClients(false)} />
+      )}
+      {showFicheMateriel && (
+        <FicheMaterielModal materiel={materiel} onClose={() => setShowFicheMateriel(false)} />
+      )}
+      {showFicheCommandes && (
+        <FicheCommandesModal commandes={commandes} nomClient={nomClient} nomProduit={nomProduit} montantCommande={montantCommande} montantReste={montantReste} onClose={() => setShowFicheCommandes(false)} />
       )}
       {encaisserCmd && (
         <EncaisserModal
@@ -3193,6 +3321,246 @@ function EncaisserSoldeModal({ client, du, commandes, montantReste, nomProduit, 
 /* ---------------------------------------------------------
    RAPPORT COMPTABLE IMPRIMABLE
 --------------------------------------------------------- */
+// Fiche imprimable listant tout le personnel (actifs et anciens) avec leurs informations clés
+// Fiche imprimable listant tous les clients (actifs et anciens)
+function FicheClientsModal({ clients, commandes, montantReste, onClose }) {
+  const actifs = clients.filter((c) => c.actif !== false);
+  const anciens = clients.filter((c) => c.actif === false);
+  const bloc = (titre, liste) => liste.length > 0 && (
+    <div className="mb-6">
+      <h4 className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: C.greenDeep }}>{titre} ({liste.length})</h4>
+      <div className="space-y-3">
+        {liste.map((c) => {
+          const cmds = commandes.filter((o) => o.clientId === c.id);
+          const du = cmds.reduce((s, o) => s + montantReste(o), 0);
+          return (
+            <div key={c.id} className="rounded-lg p-3" style={{ background: C.bg }}>
+              <div className="font-semibold text-sm" style={{ color: C.ink }}>{c.nom}</div>
+              <div className="text-xs mt-1 space-y-0.5" style={{ color: C.inkSoft }}>
+                {c.tel && <div>Téléphone : {c.tel}</div>}
+                {c.adresse && <div>Adresse : {c.adresse}</div>}
+                <div>Type : {c.type || "—"}</div>
+                <div>{cmds.length} commande(s) · {du > 0 ? <span style={{ color: C.chili }}>Doit {fcfa(du)}</span> : "À jour"}</div>
+                {c.actif === false && c.dateDepart && <div>Parti(e) le {fmtDate(c.dateDepart)}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+      <div className="min-h-full flex items-start justify-center p-3 py-6">
+        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+            <span className="text-sm font-semibold text-white">Fiche clients</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { try { window.print(); } catch {} }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.green, color: "#fff" }}>
+                <Printer size={13} /> Imprimer
+              </button>
+              <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)", color: "#fff" }}>
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+          <div className="p-6" style={{ color: C.ink }}>
+            <div className="mb-6 pb-4 text-center" style={{ borderBottom: `2px solid ${C.green}` }}>
+              <div className="text-lg font-bold" style={{ fontFamily: "'Fraunces', serif", color: C.greenDeep }}>{ENTREPRISE.nom}</div>
+              <div className="text-xs" style={{ color: C.inkSoft }}>{ENTREPRISE.adresse} · {ENTREPRISE.tel}{ENTREPRISE.email ? " · " + ENTREPRISE.email : ""}</div>
+              <div className="text-sm font-bold mt-3 uppercase tracking-widest" style={{ color: C.ink }}>Fiche clients</div>
+              <div className="text-xs" style={{ color: C.inkSoft }}>Établie le {fmtDate(todayISO())}</div>
+            </div>
+            {clients.length === 0 ? (
+              <p className="text-sm text-center py-6" style={{ color: C.inkSoft }}>Aucun client enregistré.</p>
+            ) : (
+              <>
+                {bloc("Clients actifs", actifs)}
+                {bloc("Anciens clients", anciens)}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Fiche imprimable listant le matériel (en service et gâté/en panne)
+function FicheMaterielModal({ materiel, onClose }) {
+  const enService = materiel.filter((m) => m.etat !== "En panne");
+  const gate = materiel.filter((m) => m.etat === "En panne");
+  const bloc = (titre, liste, couleur) => liste.length > 0 && (
+    <div className="mb-6">
+      <h4 className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: couleur }}>{titre} ({liste.length})</h4>
+      <div className="space-y-3">
+        {liste.map((m) => (
+          <div key={m.id} className="rounded-lg p-3" style={{ background: C.bg }}>
+            <div className="font-semibold text-sm" style={{ color: C.ink }}>{m.nom}</div>
+            <div className="text-xs mt-1 space-y-0.5" style={{ color: C.inkSoft }}>
+              <div>État : {m.etat || "Bon état"}</div>
+              <div>Quantité : {m.quantite}</div>
+              {m.valeur > 0 && <div>Valeur : {fcfa(m.valeur)}</div>}
+              {m.dernierEntretien && <div>Dernier entretien : {fmtDate(m.dernierEntretien)}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+      <div className="min-h-full flex items-start justify-center p-3 py-6">
+        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+            <span className="text-sm font-semibold text-white">Fiche matériel</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { try { window.print(); } catch {} }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.green, color: "#fff" }}>
+                <Printer size={13} /> Imprimer
+              </button>
+              <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)", color: "#fff" }}>
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+          <div className="p-6" style={{ color: C.ink }}>
+            <div className="mb-6 pb-4 text-center" style={{ borderBottom: `2px solid ${C.green}` }}>
+              <div className="text-lg font-bold" style={{ fontFamily: "'Fraunces', serif", color: C.greenDeep }}>{ENTREPRISE.nom}</div>
+              <div className="text-xs" style={{ color: C.inkSoft }}>{ENTREPRISE.adresse} · {ENTREPRISE.tel}{ENTREPRISE.email ? " · " + ENTREPRISE.email : ""}</div>
+              <div className="text-sm font-bold mt-3 uppercase tracking-widest" style={{ color: C.ink }}>Fiche matériel</div>
+              <div className="text-xs" style={{ color: C.inkSoft }}>Établie le {fmtDate(todayISO())}</div>
+            </div>
+            {materiel.length === 0 ? (
+              <p className="text-sm text-center py-6" style={{ color: C.inkSoft }}>Aucun matériel enregistré.</p>
+            ) : (
+              <>
+                {bloc("En service", enService, C.greenDeep)}
+                {bloc("Gâté / en panne", gate, C.chili)}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Fiche imprimable listant toutes les commandes
+function FicheCommandesModal({ commandes, nomClient, nomProduit, montantCommande, montantReste, onClose }) {
+  const triees = commandes.slice().sort((a, b) => b.date.localeCompare(a.date));
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+      <div className="min-h-full flex items-start justify-center p-3 py-6">
+        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+            <span className="text-sm font-semibold text-white">Fiche commandes</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { try { window.print(); } catch {} }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.green, color: "#fff" }}>
+                <Printer size={13} /> Imprimer
+              </button>
+              <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)", color: "#fff" }}>
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+          <div className="p-6" style={{ color: C.ink }}>
+            <div className="mb-6 pb-4 text-center" style={{ borderBottom: `2px solid ${C.green}` }}>
+              <div className="text-lg font-bold" style={{ fontFamily: "'Fraunces', serif", color: C.greenDeep }}>{ENTREPRISE.nom}</div>
+              <div className="text-xs" style={{ color: C.inkSoft }}>{ENTREPRISE.adresse} · {ENTREPRISE.tel}{ENTREPRISE.email ? " · " + ENTREPRISE.email : ""}</div>
+              <div className="text-sm font-bold mt-3 uppercase tracking-widest" style={{ color: C.ink }}>Fiche commandes</div>
+              <div className="text-xs" style={{ color: C.inkSoft }}>Établie le {fmtDate(todayISO())} · {commandes.length} commande(s)</div>
+            </div>
+            {triees.length === 0 ? (
+              <p className="text-sm text-center py-6" style={{ color: C.inkSoft }}>Aucune commande enregistrée.</p>
+            ) : (
+              <div className="space-y-3">
+                {triees.map((cmd) => (
+                  <div key={cmd.id} className="rounded-lg p-3" style={{ background: C.bg }}>
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold text-sm" style={{ color: C.ink }}>{nomClient(cmd.clientId)}</div>
+                      <span className="mono text-sm font-semibold" style={{ color: C.greenDeep }}>{fcfa(montantCommande(cmd))}</span>
+                    </div>
+                    <div className="text-xs mt-1 space-y-0.5" style={{ color: C.inkSoft }}>
+                      <div>{fmtDate(cmd.date)} · {cmd.items.map((it) => `${it.qte}× ${nomProduit(it.produitId)}`).join(", ")}</div>
+                      <div>Statut : {cmd.statut} {montantReste(cmd) > 0 ? `— reste dû : ${fcfa(montantReste(cmd))}` : ""}</div>
+                      <div>{cmd.livree ? `Livrée${cmd.dateLivraison ? " le " + fmtDate(cmd.dateLivraison) : ""}` : "À livrer"}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FichePersonnelModal({ personnel, onClose }) {
+  const actifs = personnel.filter((p) => p.actif !== false);
+  const anciens = personnel.filter((p) => p.actif === false);
+  const bloc = (titre, liste) => liste.length > 0 && (
+    <div className="mb-6">
+      <h4 className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: C.greenDeep }}>{titre} ({liste.length})</h4>
+      <div className="space-y-3">
+        {liste.map((p) => (
+          <div key={p.id} className="rounded-lg p-3" style={{ background: C.bg }}>
+            <div className="font-semibold text-sm" style={{ color: C.ink }}>{p.nom}</div>
+            <div className="text-xs mt-1 space-y-0.5" style={{ color: C.inkSoft }}>
+              <div>Poste : {p.poste || "—"}</div>
+              {p.tel && <div>Téléphone : {p.tel}</div>}
+              {p.adresse && <div>Adresse : {p.adresse}</div>}
+              {p.contactUrgence && <div>Contact d'urgence : {p.contactUrgence}</div>}
+              {p.dateEmbauche && <div>Embauché(e) le {fmtDate(p.dateEmbauche)}</div>}
+              {p.actif === false && p.dateDepart && <div>Parti(e) le {fmtDate(p.dateDepart)}</div>}
+              <div>Salaire : {fcfa(p.salaire)} / {(p.typePaie || "mensuel") === "journalier" ? "jour" : "mois"}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+      <div className="min-h-full flex items-start justify-center p-3 py-6">
+        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+            <span className="text-sm font-semibold text-white">Fiche du personnel</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { try { window.print(); } catch {} }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.green, color: "#fff" }}>
+                <Printer size={13} /> Imprimer
+              </button>
+              <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)", color: "#fff" }}>
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+          <div className="p-6" style={{ color: C.ink }}>
+            <div className="mb-6 pb-4 text-center" style={{ borderBottom: `2px solid ${C.green}` }}>
+              <div className="text-lg font-bold" style={{ fontFamily: "'Fraunces', serif", color: C.greenDeep }}>{ENTREPRISE.nom}</div>
+              <div className="text-xs" style={{ color: C.inkSoft }}>{ENTREPRISE.adresse} · {ENTREPRISE.tel}{ENTREPRISE.email ? " · " + ENTREPRISE.email : ""}</div>
+              <div className="text-sm font-bold mt-3 uppercase tracking-widest" style={{ color: C.ink }}>Fiche du personnel</div>
+              <div className="text-xs" style={{ color: C.inkSoft }}>Établie le {fmtDate(todayISO())}</div>
+            </div>
+            {personnel.length === 0 ? (
+              <p className="text-sm text-center py-6" style={{ color: C.inkSoft }}>Aucun employé enregistré.</p>
+            ) : (
+              <>
+                {bloc("Employés actifs", actifs)}
+                {bloc("Anciens employés", anciens)}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RapportModal({ commandes, achats, depenses, personnel, paies = [], clients, montantCommande, nomClient, montantPaye, montantReste, onClose }) {
   const totalAchats = achats.reduce((s, a) => s + a.montant, 0);
   const totalDepenses = depenses.reduce((s, d) => s + d.montant, 0);
