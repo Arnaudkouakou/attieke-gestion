@@ -1803,7 +1803,7 @@ export default function App() {
               updateCommandes([...commandes, c]);
               setShowCommandeModal(false);
               notifierGerant("Nouvelle commande", `Nouvelle commande de ${nomClient(c.clientId)} : ${fcfa(montantCommande(c))} (${c.statut}).`);
-            }}
+            }} />
       )}
       {showDocModal && (
         <AddDocModal
