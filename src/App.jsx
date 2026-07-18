@@ -109,12 +109,23 @@ const ZONES_LIVRAISON = [
 ];
 const TARIF_EMBALLAGE = 1500; // F par sac
 
-// Nombre de sacs dans une liste d'articles (produits dont l'unité est un sac)
+// Nombre de sacs dans une liste d'articles : sacs directement choisis
+// + boules vendues à l'unité, converties en sacs équivalents (30 000 F max par sac)
 function compterSacs(items, produits) {
-  return items.reduce((s, it) => {
+  let sacsDirects = 0;
+  let valeurBoulesVrac = 0;
+  items.forEach((it) => {
     const p = produits.find((x) => x.id === it.produitId);
-    return s + (p && (p.unite || "").toLowerCase().includes("sac") ? Number(it.qte || 0) : 0);
-  }, 0);
+    if (!p) return;
+    const u = (p.unite || "").toLowerCase();
+    if (u.includes("sac")) {
+      sacsDirects += Number(it.qte || 0);
+    } else if (u === "boule") {
+      valeurBoulesVrac += Number(it.qte || 0) * Number(p.prix || 0);
+    }
+  });
+  const sacsEquivalents = valeurBoulesVrac > 0 ? Math.ceil(valeurBoulesVrac / LIMITE_SAC) : 0;
+  return sacsDirects + sacsEquivalents;
 }
 
 /* ---------------------------------------------------------
