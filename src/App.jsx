@@ -378,6 +378,7 @@ const NAV = [
   { group: "Finances", items: [
     { id: "achats", label: "Achats & Ventes", icon: ArrowLeftRight },
     { id: "depenses", label: "Dépenses & Entretiens", icon: Receipt },
+    { id: "prets", label: "Prêts", icon: Banknote },
     { id: "compta", label: "Comptabilité", icon: Calculator },
   ]},
   { group: "Réglages", items: [{ id: "parametres", label: "Paramètres", icon: Settings }] },
@@ -408,6 +409,7 @@ export default function App() {
   const [materiel, setMateriel] = useState([]);
   const [achats, setAchats] = useState([]);
   const [depenses, setDepenses] = useState([]);
+  const [prets, setPrets] = useState([]);
   const [paies, setPaies] = useState([]); // journal des salaires (journaliers et mensuels)
 
   const [showClientModal, setShowClientModal] = useState(false);
@@ -438,6 +440,14 @@ export default function App() {
   const [editAchat, setEditAchat] = useState(null);
   const [editMateriel, setEditMateriel] = useState(null);
   const [editDepense, setEditDepense] = useState(null);
+  const [showPretModal, setShowPretModal] = useState(false);
+  const [editPret, setEditPret] = useState(null);
+  const [remboursementPret, setRemboursementPret] = useState(null);
+  const [editRemboursement, setEditRemboursement] = useState(null); // { pret, index }
+  const [showFichePrets, setShowFichePrets] = useState(false);
+  const [nbJoursAchatsAffiches, setNbJoursAchatsAffiches] = useState(14);
+  const [nbJoursVentesAffiches, setNbJoursVentesAffiches] = useState(14);
+  const [nbJoursDepensesAffiches, setNbJoursDepensesAffiches] = useState(14);
   const [rechercheAchats, setRechercheAchats] = useState("");
   const [rechercheVentes, setRechercheVentes] = useState("");
   const [rechercheDepenses, setRechercheDepenses] = useState("");
@@ -470,13 +480,13 @@ export default function App() {
 
   useEffect(() => {
     let done = false;
-    const finish = (cl, pr, co, dc, pe, ma, ac, de) => {
+    const finish = (cl, pr, co, dc, pe, ma, ac, de, pt) => {
       if (done) return;
       done = true;
       const prAvecGamme = fusionnerGamme(pr, co);
       if (JSON.stringify(prAvecGamme.map((p) => p.id)) !== JSON.stringify(pr.map((p) => p.id))) saveKey("attieke:produits", prAvecGamme);
       setClients(cl); setProduits(prAvecGamme); setCommandes(co); setDocuments(dc);
-      setPersonnel(pe); setMateriel(ma); setAchats(ac); setDepenses(de);
+      setPersonnel(pe); setMateriel(ma); setAchats(ac); setDepenses(de); setPrets(pt);
       setActiveClientId(cl[0]?.id || null);
       setLoading(false);
     };
@@ -488,7 +498,7 @@ export default function App() {
 
     (async () => {
       try {
-        const [cl, pr, co, dc, pe, ma, ac, de] = await Promise.all([
+        const [cl, pr, co, dc, pe, ma, ac, de, pt] = await Promise.all([
           loadKey("attieke:clients", SEED_CLIENTS),
           loadKey("attieke:produits", SEED_PRODUITS),
           loadKey("attieke:commandes", SEED_COMMANDES),
@@ -497,8 +507,9 @@ export default function App() {
           loadKey("attieke:materiel", []),
           loadKey("attieke:achats", []),
           loadKey("attieke:depenses", []),
+          loadKey("attieke:prets", []),
         ]);
-        finish(cl, pr, co, dc, pe, ma, ac, de);
+        finish(cl, pr, co, dc, pe, ma, ac, de, pt);
       } catch {
         if (!done) setErreurChargement(true);
       }
@@ -637,12 +648,17 @@ export default function App() {
   const updateMateriel = (next) => { setMateriel(next); saveKey("attieke:materiel", next); };
   const updateAchats = (next) => { setAchats(next); saveKey("attieke:achats", next); };
   const updateDepenses = (next) => { setDepenses(next); saveKey("attieke:depenses", next); };
+  const updatePrets = (next) => { setPrets(next); saveKey("attieke:prets", next); };
 
   const montantCommande = (cmd) =>
     cmd.items.reduce((s, it) => {
       const p = produits.find((x) => x.id === it.produitId);
       return s + (p ? p.prix * it.qte : 0);
     }, 0) + Number(cmd.fraisTransport || 0) + Number(cmd.fraisEmballage || 0);
+
+  // Prêts : montant remboursé et reste dû, calculés automatiquement à partir des versements enregistrés
+  const montantRembourse = (pret) => (pret.remboursements || []).reduce((s, r) => s + Number(r.montant || 0), 0);
+  const resteDuPret = (pret) => Math.max(0, Number(pret.montant || 0) - montantRembourse(pret));
 
   // Somme des encaissements enregistrés sur une commande.
   // Compatibilité : une commande "payé" sans détail d'encaissement compte pour sa totalité.
@@ -738,6 +754,21 @@ export default function App() {
       label: "Notifier le client par WhatsApp",
       action: () => notifierClient(clients.find((cl) => cl.id === clientId)?.tel, `Bonjour, nous avons bien reçu votre versement de ${fcfa(Number(montant))} (${moyen}), réparti sur votre solde. Reste à payer : ${fcfa(Math.max(0, soldeAvant - Number(montant)))}. Merci — HÉLÈNE Multiservices.`),
     });
+  };
+
+  // Enregistre un remboursement sur un prêt en cours ; le reste dû et le statut se recalculent automatiquement
+  const rembourserPret = (pretId, montant, date, moyen) => {
+    const pret = prets.find((p) => p.id === pretId);
+    if (!pret) return;
+    const remboursements = [...(pret.remboursements || []), { montant: Number(montant), date, moyen }];
+    const total = Number(pret.montant || 0);
+    const totalRembourse = remboursements.reduce((s, r) => s + Number(r.montant || 0), 0);
+    const solde = totalRembourse >= total;
+    updatePrets(prets.map((p) => p.id === pretId ? {
+      ...p, remboursements,
+      dateSolde: solde ? date : null,
+    } : p));
+    afficherToast(solde ? "Prêt entièrement soldé 🎉" : "Remboursement enregistré");
   };
 
   const nomClient = (id) => clients.find((c) => c.id === id)?.nom || "—";
@@ -1910,7 +1941,8 @@ export default function App() {
                     <p className="text-xs" style={{ color: C.inkSoft }}>Aucun achat enregistré. Note ici tes achats de manioc, sacs, gaz, intrants…</p>
                   </div>
                 ) : (
-                  <div className="rounded-2xl overflow-hidden mb-6" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+                  <>
+                  <div className="rounded-2xl overflow-hidden mb-3" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                     {(() => {
                       const q = rechercheAchats.trim().toLowerCase();
                       const achatsFiltres = achats.filter((a) => !q || [a.designation, a.fournisseur].some((v) => (v || "").toLowerCase().includes(q)));
@@ -1921,7 +1953,9 @@ export default function App() {
                         groupes[cle].push(a);
                       });
                       if (achatsFiltres.length === 0) return <div className="p-6 text-center text-xs" style={{ color: C.inkSoft }}>Aucun résultat pour "{rechercheAchats}".</div>;
-                      return Object.keys(groupes).sort().reverse().map((cle) => {
+                      const clesTriees = Object.keys(groupes).sort().reverse();
+                      const clesAffichees = granulAchatsVentes === "jour" ? clesTriees.slice(0, nbJoursAchatsAffiches) : clesTriees;
+                      return clesAffichees.map((cle) => {
                         const entrees = groupes[cle];
                         const total = entrees.reduce((s, a) => s + a.montant, 0);
                         if (granulAchatsVentes !== "jour") {
@@ -1956,6 +1990,17 @@ export default function App() {
                       });
                     })()}
                   </div>
+                  {granulAchatsVentes === "jour" && (() => {
+                    const q = rechercheAchats.trim().toLowerCase();
+                    const nbJours = new Set(achats.filter((a) => !q || [a.designation, a.fournisseur].some((v) => (v || "").toLowerCase().includes(q))).map((a) => cleGroupe(a.date, "jour"))).size;
+                    return nbJours > nbJoursAchatsAffiches && (
+                      <button onClick={() => setNbJoursAchatsAffiches((n) => n + 14)}
+                        className="w-full mb-6 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                        Voir plus de jours
+                      </button>
+                    );
+                  })()}
+                  </>
                 )}
 
 
@@ -1971,7 +2016,8 @@ export default function App() {
                     <p className="text-xs" style={{ color: C.inkSoft }}>Aucune vente enregistrée.</p>
                   </div>
                 ) : (
-                  <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+                  <>
+                  <div className="rounded-2xl overflow-hidden mb-3" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                     {(() => {
                       const q = rechercheVentes.trim().toLowerCase();
                       const commandesFiltrees = commandes.filter((cmd) => {
@@ -1986,7 +2032,9 @@ export default function App() {
                         groupes[cle].push(cmd);
                       });
                       if (commandesFiltrees.length === 0) return <div className="p-6 text-center text-xs" style={{ color: C.inkSoft }}>Aucun résultat pour "{rechercheVentes}".</div>;
-                      return Object.keys(groupes).sort().reverse().map((cle) => {
+                      const clesTriees = Object.keys(groupes).sort().reverse();
+                      const clesAffichees = granulAchatsVentes === "jour" ? clesTriees.slice(0, nbJoursVentesAffiches) : clesTriees;
+                      return clesAffichees.map((cle) => {
                         const entrees = groupes[cle];
                         const total = entrees.reduce((s, cmd) => s + montantCommande(cmd), 0);
                         if (granulAchatsVentes !== "jour") {
@@ -2023,6 +2071,21 @@ export default function App() {
                       });
                     })()}
                   </div>
+                  {granulAchatsVentes === "jour" && (() => {
+                    const q = rechercheVentes.trim().toLowerCase();
+                    const nbJours = new Set(commandes.filter((cmd) => {
+                      if (!q) return true;
+                      const texte = [nomClient(cmd.clientId), ...cmd.items.map((it) => nomProduit(it.produitId))].join(" ").toLowerCase();
+                      return texte.includes(q);
+                    }).map((cmd) => cleGroupe(cmd.date, "jour"))).size;
+                    return nbJours > nbJoursVentesAffiches && (
+                      <button onClick={() => setNbJoursVentesAffiches((n) => n + 14)}
+                        className="w-full mb-6 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                        Voir plus de jours
+                      </button>
+                    );
+                  })()}
+                  </>
                 )}
               </div>
             )}
@@ -2076,7 +2139,8 @@ export default function App() {
                     <p className="text-xs" style={{ color: C.inkSoft }}>Note ici les entretiens du matériel, l'eau, l'électricité, le transport et toutes tes autres dépenses.</p>
                   </div>
                 ) : (
-                  <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+                  <>
+                  <div className="rounded-2xl overflow-hidden mb-3" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                     {(() => {
                       const q = rechercheDepenses.trim().toLowerCase();
                       const depensesFiltrees = depenses.filter((d) => !q || [d.designation, d.categorie].some((v) => (v || "").toLowerCase().includes(q)));
@@ -2087,7 +2151,9 @@ export default function App() {
                         groupes[cle].push(d);
                       });
                       if (depensesFiltrees.length === 0) return <div className="p-6 text-center text-xs" style={{ color: C.inkSoft }}>Aucun résultat pour "{rechercheDepenses}".</div>;
-                      return Object.keys(groupes).sort().reverse().map((cle) => {
+                      const clesTriees = Object.keys(groupes).sort().reverse();
+                      const clesAffichees = granulDepenses === "jour" ? clesTriees.slice(0, nbJoursDepensesAffiches) : clesTriees;
+                      return clesAffichees.map((cle) => {
                         const entrees = groupes[cle];
                         const total = entrees.reduce((s, d) => s + d.montant, 0);
                         if (granulDepenses !== "jour") {
@@ -2120,6 +2186,130 @@ export default function App() {
                         );
                       });
                     })()}
+                  </div>
+                  {granulDepenses === "jour" && (() => {
+                    const q = rechercheDepenses.trim().toLowerCase();
+                    const nbJours = new Set(depenses.filter((d) => !q || [d.designation, d.categorie].some((v) => (v || "").toLowerCase().includes(q))).map((d) => cleGroupe(d.date, "jour"))).size;
+                    return nbJours > nbJoursDepensesAffiches && (
+                      <button onClick={() => setNbJoursDepensesAffiches((n) => n + 14)}
+                        className="w-full mb-6 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                        Voir plus de jours
+                      </button>
+                    );
+                  })()}
+                  </>
+                )}
+              </div>
+            )}
+            {section === "prets" && (
+              <div>
+                <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+                  <div>
+                    <h1 className="text-2xl font-bold" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Prêts</h1>
+                    <p className="text-sm" style={{ color: C.inkSoft }}>
+                      Reste dû total : <span style={{ color: prets.some((p) => resteDuPret(p) > 0) ? C.chili : C.greenDeep, fontWeight: 600 }}>{fcfa(prets.reduce((s, p) => s + resteDuPret(p), 0))}</span>
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setShowFichePrets(true)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                      <Printer size={15} /> Fiche des prêts
+                    </button>
+                    <button onClick={() => setShowPretModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
+                      <Plus size={16} /> Nouveau prêt
+                    </button>
+                  </div>
+                </div>
+
+                {prets.length === 0 ? (
+                  <div className="rounded-2xl p-8 text-center" style={{ background: C.card, border: `1px dashed ${C.border}` }}>
+                    <div className="flex justify-center mb-3"><ClaieBadge size={48}><Banknote size={20} /></ClaieBadge></div>
+                    <p className="text-sm font-semibold mb-1" style={{ color: C.ink }}>Aucun prêt enregistré</p>
+                    <p className="text-xs" style={{ color: C.inkSoft }}>Suis ici tes prêts en cours : banque, montant, échéance, remboursements…</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {prets.slice().sort((a, b) => b.dateEmprunt.localeCompare(a.dateEmprunt)).map((p) => {
+                      const rembourse = montantRembourse(p);
+                      const reste = resteDuPret(p);
+                      const solde = reste <= 0;
+                      const joursRestants = p.dateLimite ? Math.ceil((new Date(p.dateLimite) - new Date(todayISO())) / 86400000) : null;
+                      const enRetard = !solde && joursRestants !== null && joursRestants < 0;
+                      const echeanceProche = !solde && joursRestants !== null && joursRestants >= 0 && joursRestants <= 15;
+                      return (
+                        <div key={p.id} className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${enRetard ? C.chili : echeanceProche ? C.gold : C.border}` }}>
+                          <div className="flex items-center justify-between mb-2 flex-wrap gap-1.5">
+                            <div className="font-semibold text-sm" style={{ color: C.ink }}>{p.banque}</div>
+                            <div className="flex items-center gap-1.5">
+                              {enRetard && (
+                                <span className="text-xs font-semibold px-2 py-1 rounded-full" style={{ background: C.chiliSoft, color: C.chili }}>⚠️ En retard</span>
+                              )}
+                              {echeanceProche && (
+                                <span className="text-xs font-semibold px-2 py-1 rounded-full" style={{ background: C.goldSoft, color: "#8A5D14" }}>⏰ Échéance proche</span>
+                              )}
+                              <span className="text-xs font-semibold px-2 py-1 rounded-full" style={{ background: solde ? C.greenSoft : C.chiliSoft, color: solde ? C.greenDeep : C.chili }}>
+                                {solde ? `Soldé le ${fmtDate(p.dateSolde)}` : "En cours"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-xs space-y-0.5 mb-3" style={{ color: C.inkSoft }}>
+                            <div>Montant emprunté : <span className="mono">{fcfa(p.montant)}</span></div>
+                            <div>Date du prêt : {fmtDate(p.dateEmprunt)}{p.duree ? ` · Durée : ${p.duree}` : ""}</div>
+                            {p.dateLimite && <div>Date limite : {fmtDate(p.dateLimite)}</div>}
+                            {p.tauxInteret && <div>Taux d'intérêt : {p.tauxInteret}%</div>}
+                            <div>Déjà remboursé : <span className="mono" style={{ color: C.greenDeep }}>{fcfa(rembourse)}</span></div>
+                            <div>Reste dû : <span className="mono font-semibold" style={{ color: reste > 0 ? C.chili : C.greenDeep }}>{fcfa(reste)}</span></div>
+                          </div>
+                          {(p.remboursements || []).length > 0 && (
+                            <div className="rounded-lg mb-3 overflow-hidden" style={{ background: C.bg }}>
+                              {p.remboursements.map((r, i) => (
+                                <div key={i} className="px-3 py-2 flex items-center justify-between gap-2 text-xs" style={{ borderBottom: i < p.remboursements.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                                  <span style={{ color: C.inkSoft }}>{fmtDate(r.date)} · {r.moyen}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="mono font-semibold" style={{ color: C.greenDeep }}>{fcfa(r.montant)}</span>
+                                    <button onClick={() => setEditRemboursement({ pret: p, index: i })} className="w-6 h-6 rounded flex items-center justify-center" style={{ background: C.greenSoft, color: C.greenDeep }}><UserCog size={11} /></button>
+                                    <button
+                                      onClick={() => setConfirmation({
+                                        message: `Supprimer ce remboursement de ${fcfa(r.montant)} du ${fmtDate(r.date)} ?`,
+                                        action: () => {
+                                          const remboursements = p.remboursements.filter((_, idx) => idx !== i);
+                                          const totalRembourse = remboursements.reduce((s, x) => s + Number(x.montant || 0), 0);
+                                          updatePrets(prets.map((x) => x.id === p.id ? { ...x, remboursements, dateSolde: totalRembourse >= Number(p.montant || 0) ? x.dateSolde : null } : x));
+                                        },
+                                        toastMessage: "Remboursement supprimé",
+                                      })}
+                                      className="w-6 h-6 rounded flex items-center justify-center" style={{ background: C.chiliSoft, color: C.chili }}><Trash2 size={11} /></button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {!solde && (
+                              <button onClick={() => setRemboursementPret(p)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                style={{ background: C.greenSoft, color: C.greenDeep }}>
+                                <Wallet size={12} /> Rembourser
+                              </button>
+                            )}
+                            <button onClick={() => setEditPret(p)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                              style={{ background: C.bgAlt, color: C.ink }}>
+                              <UserCog size={12} /> Modifier
+                            </button>
+                            <button
+                              onClick={() => setConfirmation({
+                                message: `Supprimer ce prêt (${p.banque}) ? Son historique de remboursement sera perdu.`,
+                                action: () => updatePrets(prets.filter((x) => x.id !== p.id)),
+                                toastMessage: "Prêt supprimé",
+                              })}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                              style={{ background: C.chiliSoft, color: C.chili }}>
+                              <Trash2 size={12} /> Supprimer
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2227,6 +2417,22 @@ export default function App() {
                     </div>
                     <div className="text-xs mt-1" style={{ color: C.inkSoft }}>Encaissé − (achats + dépenses + salaires)</div>
                   </div>
+
+                  {/* Prêts en cours — information distincte, non mêlée au résultat d'exploitation */}
+                  {prets.length > 0 && (
+                    <div className="rounded-2xl p-5 mb-6" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+                      <h3 className="font-bold mb-3 text-sm flex items-center gap-1.5" style={{ color: C.ink }}><Banknote size={15} /> Prêts en cours</h3>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between"><span style={{ color: C.inkSoft }}>Total emprunté</span><span className="mono" style={{ color: C.ink }}>{fcfa(prets.reduce((s, p) => s + Number(p.montant || 0), 0))}</span></div>
+                        <div className="flex justify-between"><span style={{ color: C.inkSoft }}>Total remboursé</span><span className="mono" style={{ color: C.greenDeep }}>{fcfa(prets.reduce((s, p) => s + montantRembourse(p), 0))}</span></div>
+                        <div className="flex justify-between pt-2 font-bold" style={{ borderTop: `1px solid ${C.border}` }}>
+                          <span style={{ color: C.ink }}>Reste dû (dette en cours)</span>
+                          <span className="mono" style={{ color: C.chili }}>{fcfa(prets.reduce((s, p) => s + resteDuPret(p), 0))}</span>
+                        </div>
+                      </div>
+                      <p className="text-[11px] mt-2" style={{ color: C.inkSoft }}>Ce montant n'est pas déduit du résultat ci-dessus : un prêt n'est ni une vente ni une dépense, mais une dette à suivre séparément.</p>
+                    </div>
+                  )}
 
                   {/* Détail entrées / sorties */}
                   <div className="grid md:grid-cols-2 gap-4 mb-6">
@@ -2475,6 +2681,34 @@ export default function App() {
             toastMessage: "Dépense supprimée",
           })} />
       )}
+      {showPretModal && (
+        <PretModal onClose={() => setShowPretModal(false)}
+          onSave={(p) => { updatePrets([...prets, p]); setShowPretModal(false); afficherToast("Prêt enregistré"); }} />
+      )}
+      {editPret && (
+        <PretModal initial={editPret} onClose={() => setEditPret(null)}
+          onSave={(p) => { updatePrets(prets.map((x) => x.id === p.id ? p : x)); setEditPret(null); afficherToast("Prêt modifié"); }} />
+      )}
+      {remboursementPret && (
+        <RembourserPretModal pret={remboursementPret} resteDu={resteDuPret(remboursementPret)}
+          onClose={() => setRemboursementPret(null)}
+          onSave={(montant, date, moyen) => { rembourserPret(remboursementPret.id, montant, date, moyen); setRemboursementPret(null); }} />
+      )}
+      {editRemboursement && (
+        <EditRemboursementModal remboursement={editRemboursement.pret.remboursements[editRemboursement.index]}
+          onClose={() => setEditRemboursement(null)}
+          onSave={(r) => {
+            const p = editRemboursement.pret;
+            const remboursements = p.remboursements.map((x, i) => i === editRemboursement.index ? r : x);
+            const totalRembourse = remboursements.reduce((s, x) => s + Number(x.montant || 0), 0);
+            updatePrets(prets.map((x) => x.id === p.id ? { ...x, remboursements, dateSolde: totalRembourse >= Number(p.montant || 0) ? (x.dateSolde || r.date) : null } : x));
+            setEditRemboursement(null);
+            afficherToast("Remboursement modifié");
+          }} />
+      )}
+      {showFichePrets && (
+        <FichePretsModal prets={prets} montantRembourse={montantRembourse} resteDuPret={resteDuPret} onClose={() => setShowFichePrets(false)} />
+      )}
       {livraisonCmd && (
         <LivraisonModal cmd={livraisonCmd} produits={produits} nomProduit={nomProduit}
           onClose={() => setLivraisonCmd(null)}
@@ -2501,6 +2735,7 @@ export default function App() {
           commandes={commandes} achats={achats} depenses={depenses} personnel={personnel} paies={paies}
           clients={clients} montantCommande={montantCommande} nomClient={nomClient}
           montantPaye={montantPaye} montantReste={montantReste}
+          prets={prets} montantRembourse={montantRembourse} resteDuPret={resteDuPret}
           onClose={() => setShowRapport(false)} />
       )}
       {showFichePersonnel && (
@@ -3559,6 +3794,166 @@ function EditDepenseModal({ depense, onClose, onSave, onDelete }) {
   );
 }
 
+// Ajouter ou modifier un prêt (les remboursements se gèrent séparément via RembourserPretModal)
+function PretModal({ initial, onClose, onSave }) {
+  const [banque, setBanque] = useState(initial?.banque || "");
+  const [montant, setMontant] = useState(initial?.montant ?? "");
+  const [dateEmprunt, setDateEmprunt] = useState(initial?.dateEmprunt || todayISO());
+  const [duree, setDuree] = useState(initial?.duree || "");
+  const [dateLimite, setDateLimite] = useState(initial?.dateLimite || "");
+  const [tauxInteret, setTauxInteret] = useState(initial?.tauxInteret ?? "");
+  return (
+    <Modal title={initial ? "Modifier le prêt" : "Nouveau prêt"} onClose={onClose}>
+      <Field label="Banque ou opérateur (ex : NSIA Banque, Orange Money…)">
+        <input value={banque} onChange={(e) => setBanque(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      <Field label="Montant emprunté (FCFA)">
+        <input type="number" value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      <Field label="Date du prêt">
+        <input type="date" value={dateEmprunt} onChange={(e) => setDateEmprunt(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      <Field label="Durée (ex : 12 mois)">
+        <input value={duree} onChange={(e) => setDuree(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      <Field label="Date limite de remboursement">
+        <input type="date" value={dateLimite} onChange={(e) => setDateLimite(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      <Field label="Taux d'intérêt % (optionnel)">
+        <input type="number" value={tauxInteret} onChange={(e) => setTauxInteret(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      <button disabled={!banque || !montant}
+        onClick={() => onSave({
+          id: initial?.id || "pr" + Date.now(),
+          banque, montant: Number(montant), dateEmprunt, duree, dateLimite,
+          tauxInteret: tauxInteret ? Number(tauxInteret) : null,
+          remboursements: initial?.remboursements || [],
+          dateSolde: initial?.dateSolde || null,
+        })}
+        className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
+        {initial ? "Enregistrer les modifications" : "Enregistrer"}
+      </button>
+    </Modal>
+  );
+}
+
+// Enregistrer un remboursement sur un prêt en cours
+function RembourserPretModal({ pret, resteDu, onClose, onSave }) {
+  const [montant, setMontant] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const [moyen, setMoyen] = useState("Espèces");
+  return (
+    <Modal title={`Rembourser — ${pret.banque}`} onClose={onClose}>
+      <p className="text-xs mb-3" style={{ color: C.inkSoft }}>Reste dû actuellement : <b>{fcfa(resteDu)}</b></p>
+      <Field label="Montant remboursé (FCFA)">
+        <input type="number" min="0" max={resteDu} value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      <Field label="Date du versement">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      <Field label="Moyen de paiement">
+        <select value={moyen} onChange={(e) => setMoyen(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle}>
+          <option>Espèces</option><option>Mobile Money</option><option>Virement</option>
+        </select>
+      </Field>
+      <button disabled={!montant || Number(montant) <= 0}
+        onClick={() => onSave(Number(montant), date, moyen)}
+        className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
+        Enregistrer le remboursement
+      </button>
+    </Modal>
+  );
+}
+
+// Modifier un remboursement déjà enregistré (en cas d'erreur de saisie)
+function EditRemboursementModal({ remboursement, onClose, onSave }) {
+  const [montant, setMontant] = useState(remboursement.montant ?? "");
+  const [date, setDate] = useState(remboursement.date || todayISO());
+  const [moyen, setMoyen] = useState(remboursement.moyen || "Espèces");
+  return (
+    <Modal title="Modifier le remboursement" onClose={onClose}>
+      <Field label="Montant (FCFA)">
+        <input type="number" min="0" value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      <Field label="Date du versement">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      <Field label="Moyen de paiement">
+        <select value={moyen} onChange={(e) => setMoyen(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle}>
+          <option>Espèces</option><option>Mobile Money</option><option>Virement</option>
+        </select>
+      </Field>
+      <button disabled={!montant || Number(montant) <= 0}
+        onClick={() => onSave({ montant: Number(montant), date, moyen })}
+        className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
+        Enregistrer les modifications
+      </button>
+    </Modal>
+  );
+}
+
+// Fiche imprimable listant tous les prêts (en cours et soldés)
+function FichePretsModal({ prets, montantRembourse, resteDuPret, onClose }) {
+  const enCours = prets.filter((p) => resteDuPret(p) > 0);
+  const soldes = prets.filter((p) => resteDuPret(p) <= 0);
+  const bloc = (titre, liste, couleur) => liste.length > 0 && (
+    <div className="mb-6">
+      <h4 className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: couleur }}>{titre} ({liste.length})</h4>
+      <div className="space-y-3">
+        {liste.map((p) => (
+          <div key={p.id} className="rounded-lg p-3" style={{ background: C.bg }}>
+            <div className="font-semibold text-sm" style={{ color: C.ink }}>{p.banque}</div>
+            <div className="text-xs mt-1 space-y-0.5" style={{ color: C.inkSoft }}>
+              <div>Montant emprunté : {fcfa(p.montant)}</div>
+              <div>Date du prêt : {fmtDate(p.dateEmprunt)}{p.duree ? ` · Durée : ${p.duree}` : ""}</div>
+              {p.dateLimite && <div>Date limite : {fmtDate(p.dateLimite)}</div>}
+              <div>Remboursé : {fcfa(montantRembourse(p))}</div>
+              <div>Reste dû : {fcfa(resteDuPret(p))}</div>
+              {p.dateSolde && <div>Soldé le {fmtDate(p.dateSolde)}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+      <div className="min-h-full flex items-start justify-center p-3 py-6">
+        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+            <span className="text-sm font-semibold text-white">Fiche des prêts</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { try { window.print(); } catch {} }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.green, color: "#fff" }}>
+                <Printer size={13} /> Imprimer
+              </button>
+              <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)", color: "#fff" }}>
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+          <div className="p-6" style={{ color: C.ink }}>
+            <div className="mb-6 pb-4 text-center" style={{ borderBottom: `2px solid ${C.green}` }}>
+              <div className="text-lg font-bold" style={{ fontFamily: "'Fraunces', serif", color: C.greenDeep }}>{ENTREPRISE.nom}</div>
+              <div className="text-xs" style={{ color: C.inkSoft }}>{ENTREPRISE.adresse} · {ENTREPRISE.tel}{ENTREPRISE.email ? " · " + ENTREPRISE.email : ""}</div>
+              <div className="text-sm font-bold mt-3 uppercase tracking-widest" style={{ color: C.ink }}>Fiche des prêts</div>
+              <div className="text-xs" style={{ color: C.inkSoft }}>Établie le {fmtDate(todayISO())}</div>
+            </div>
+            {prets.length === 0 ? (
+              <p className="text-sm text-center py-6" style={{ color: C.inkSoft }}>Aucun prêt enregistré.</p>
+            ) : (
+              <>
+                {bloc("En cours", enCours, C.chili)}
+                {bloc("Soldés", soldes, C.greenDeep)}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------
    MODALE D'ENCAISSEMENT
 --------------------------------------------------------- */
@@ -3933,7 +4328,7 @@ function FichePersonnelModal({ personnel, onClose }) {
   );
 }
 
-function RapportModal({ commandes, achats, depenses, personnel, paies = [], clients, montantCommande, nomClient, montantPaye, montantReste, onClose }) {
+function RapportModal({ commandes, achats, depenses, personnel, paies = [], clients, montantCommande, nomClient, montantPaye, montantReste, prets = [], montantRembourse, resteDuPret, onClose }) {
   const totalAchats = achats.reduce((s, a) => s + a.montant, 0);
   const totalDepenses = depenses.reduce((s, d) => s + d.montant, 0);
   const salairesPayes = paies.filter((p) => p.statut === "payé").reduce((s, p) => s + p.montant, 0);
@@ -3992,6 +4387,15 @@ function RapportModal({ commandes, achats, depenses, personnel, paies = [], clie
             </div>
             <div className="text-2xl font-bold mono" style={{ color: resultat >= 0 ? C.greenDeep : C.chili }}>{fcfa(Math.abs(resultat))}</div>
           </div>
+
+          {prets.length > 0 && (
+            <div className="mb-5">
+              <h4 className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: C.ink }}>Prêts en cours (hors résultat)</h4>
+              {ligne("Total emprunté", prets.reduce((s, p) => s + Number(p.montant || 0), 0))}
+              {ligne("Total remboursé", prets.reduce((s, p) => s + montantRembourse(p), 0), C.greenDeep)}
+              {ligne("Reste dû", prets.reduce((s, p) => s + resteDuPret(p), 0), C.chili)}
+            </div>
+          )}
 
           {/* Entrées */}
           <div className="mb-5">
