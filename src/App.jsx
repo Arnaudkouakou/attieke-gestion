@@ -182,6 +182,39 @@ function saveKey(key, value) {
   });
 }
 /* ---------------------------------------------------------
+   NOTIFICATIONS GÉRANT (email automatique + WhatsApp en un tap)
+--------------------------------------------------------- */
+const EMAILJS_SERVICE_ID = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+const EMAILJS_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+const EMAILJS_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+const GERANT_EMAIL = import.meta.env.VITE_GERANT_EMAIL;
+const GERANT_WHATSAPP = import.meta.env.VITE_GERANT_WHATSAPP;
+
+function envoyerEmailGerant(sujet, message) {
+  if (!EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID || !EMAILJS_PUBLIC_KEY || !GERANT_EMAIL) return;
+  fetch("https://api.emailjs.com/api/v1.0/email/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      service_id: EMAILJS_SERVICE_ID,
+      template_id: EMAILJS_TEMPLATE_ID,
+      user_id: EMAILJS_PUBLIC_KEY,
+      template_params: { to_email: GERANT_EMAIL, subject: sujet, message },
+    }),
+  }).catch(() => {});
+}
+
+function ouvrirWhatsAppGerant(message) {
+  if (!GERANT_WHATSAPP) return;
+  window.open(`https://wa.me/${GERANT_WHATSAPP}?text=${encodeURIComponent(message)}`, "_blank");
+}
+
+function notifierGerant(sujet, message) {
+  envoyerEmailGerant(sujet, message);
+  ouvrirWhatsAppGerant(message);
+}
+
+/* ---------------------------------------------------------
    PETITS COMPOSANTS
 --------------------------------------------------------- */
 function Badge({ statut }) {
