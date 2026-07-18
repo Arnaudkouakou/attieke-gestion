@@ -153,17 +153,13 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 async function loadKey(key, seed) {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return seed;
-  try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/app_data?key=eq.${encodeURIComponent(key)}&select=value`,
-      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
-    );
-    const rows = await res.json();
-    if (Array.isArray(rows) && rows.length > 0) return rows[0].value;
-    return seed;
-  } catch {
-    return seed;
-  }
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/app_data?key=eq.${encodeURIComponent(key)}&select=value`,
+    { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+  );
+  const rows = await res.json();
+  if (Array.isArray(rows) && rows.length > 0) return rows[0].value;
+  return seed; // clé jamais créée : première utilisation légitime
 }
 
 function saveKey(key, value) {
@@ -181,6 +177,7 @@ function saveKey(key, value) {
     /* silencieux : les données restent en mémoire pour cette session */
   });
 }
+
 /* ---------------------------------------------------------
    NOTIFICATIONS GÉRANT (email automatique + WhatsApp en un tap)
 --------------------------------------------------------- */
@@ -188,8 +185,9 @@ const EMAILJS_SERVICE_ID = import.meta.env.VITE_EMAILJS_SERVICE_ID;
 const EMAILJS_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
 const EMAILJS_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
 const GERANT_EMAIL = import.meta.env.VITE_GERANT_EMAIL;
-const GERANT_WHATSAPP = import.meta.env.VITE_GERANT_WHATSAPP;
+const GERANT_WHATSAPP = import.meta.env.VITE_GERANT_WHATSAPP; // format international sans + ni espaces (ex: 2250701234567)
 
+// Envoie un e-mail automatique au gérant via EmailJS (silencieux, sans action de l'utilisateur)
 function envoyerEmailGerant(sujet, message) {
   if (!EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID || !EMAILJS_PUBLIC_KEY || !GERANT_EMAIL) return;
   fetch("https://api.emailjs.com/api/v1.0/email/send", {
@@ -201,9 +199,12 @@ function envoyerEmailGerant(sujet, message) {
       user_id: EMAILJS_PUBLIC_KEY,
       template_params: { to_email: GERANT_EMAIL, subject: sujet, message },
     }),
-  }).catch(() => {});
+  }).catch(() => {
+    /* silencieux : l'action principale (commande/paiement) reste enregistrée même si l'e-mail échoue */
+  });
 }
 
+// Ouvre WhatsApp avec le message pré-rempli, prêt à envoyer en un tap
 function ouvrirWhatsAppGerant(message) {
   if (!GERANT_WHATSAPP) return;
   window.open(`https://wa.me/${GERANT_WHATSAPP}?text=${encodeURIComponent(message)}`, "_blank");
@@ -212,6 +213,22 @@ function ouvrirWhatsAppGerant(message) {
 function notifierGerant(sujet, message) {
   envoyerEmailGerant(sujet, message);
   ouvrirWhatsAppGerant(message);
+}
+
+// Convertit un numéro local ivoirien (ex: 07 01 23 45 67) en format international pour WhatsApp
+function telWhatsApp(tel) {
+  const digits = (tel || "").replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.startsWith("225")) return digits;
+  if (digits.startsWith("0")) return "225" + digits.slice(1);
+  return "225" + digits;
+}
+
+// Ouvre WhatsApp pré-rempli vers le client concerné (utilisé quand c'est le gérant qui agit)
+function notifierClient(tel, message) {
+  const numero = telWhatsApp(tel);
+  if (!numero) return;
+  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(message)}`, "_blank");
 }
 
 /* ---------------------------------------------------------
@@ -357,6 +374,7 @@ export default function App() {
   const [mode, setMode] = useState("gerant"); // "gerant" | "client"
   const [section, setSection] = useState("dashboard");
   const [loading, setLoading] = useState(true);
+  const [erreurChargement, setErreurChargement] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [auth, setAuth] = useState(null); // null | {role:"gerant"} | {role:"client", clientId}
 
@@ -381,6 +399,7 @@ export default function App() {
   const [fichePaie, setFichePaie] = useState(null); // employé dont on affiche la fiche de paie
   const [showMaterielModal, setShowMaterielModal] = useState(false);
   const [showAchatModal, setShowAchatModal] = useState(false);
+  const [editAchat, setEditAchat] = useState(null);
   const [showDepenseModal, setShowDepenseModal] = useState(false);
   const [showRapport, setShowRapport] = useState(false);
   const [encaisserCmd, setEncaisserCmd] = useState(null); // commande en cours d'encaissement
@@ -413,8 +432,10 @@ export default function App() {
       setLoading(false);
     };
 
-    // Filet de sécurité : démarrage sur les données de démo après 3s quoi qu'il arrive
-    const safety = setTimeout(() => finish(SEED_CLIENTS, SEED_PRODUITS, SEED_COMMANDES, [], [], [], [], []), 3000);
+    // Filet de sécurité : si Supabase ne répond pas en 20s (connexion lente), on affiche
+    // un écran de reconnexion — on ne charge JAMAIS de données de démo par-dessus de vraies
+    // données, pour éviter qu'une sauvegarde ultérieure n'écrase le travail réel.
+    const safety = setTimeout(() => { if (!done) setErreurChargement(true); }, 20000);
 
     (async () => {
       try {
@@ -430,7 +451,7 @@ export default function App() {
         ]);
         finish(cl, pr, co, dc, pe, ma, ac, de);
       } catch {
-        finish(SEED_CLIENTS, SEED_PRODUITS, SEED_COMMANDES, [], [], [], [], []);
+        if (!done) setErreurChargement(true);
       }
     })();
 
@@ -624,7 +645,7 @@ export default function App() {
     updateCommandes(commandes.map((c) => c.id === cmdId ? { ...c, paiements, statut, paiementSignale: false } : c));
 
     genererRecuAuto(cmd.clientId, cmd.id, lignesDeCommande(cmd), total, Number(montant), Math.max(0, total - paye), moyen);
-    notifierGerant("Paiement reçu", `Paiement de ${fcfa(Number(montant))} reçu de ${nomClient(cmd.clientId)} (${moyen}). Reste à payer : ${fcfa(Math.max(0, total - paye))}.`);
+    notifierClient(clients.find((cl) => cl.id === cmd.clientId)?.tel, `Bonjour, nous avons bien reçu votre paiement de ${fcfa(Number(montant))} (${moyen}). Reste à payer : ${fcfa(Math.max(0, total - paye))}. Merci — HÉLÈNE Multiservices.`);
   };
 
   // Encaissement global sur le solde d'un client : le montant est réparti
@@ -655,7 +676,7 @@ export default function App() {
     }
     updateCommandes(next);
     genererRecuAuto(clientId, null, lignesRecu, soldeAvant, Number(montant), Math.max(0, soldeAvant - Number(montant)), moyen);
-    notifierGerant("Paiement reçu", `Versement de ${fcfa(Number(montant))} reçu de ${nomClient(clientId)} (${moyen}), réparti sur son solde. Reste à payer : ${fcfa(Math.max(0, soldeAvant - Number(montant)))}.`);
+    notifierClient(clients.find((cl) => cl.id === clientId)?.tel, `Bonjour, nous avons bien reçu votre versement de ${fcfa(Number(montant))} (${moyen}), réparti sur votre solde. Reste à payer : ${fcfa(Math.max(0, soldeAvant - Number(montant)))}. Merci — HÉLÈNE Multiservices.`);
   };
 
   const nomClient = (id) => clients.find((c) => c.id === id)?.nom || "—";
@@ -674,9 +695,20 @@ export default function App() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg }}>
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-3 text-center px-6">
           <ClaieBadge size={56}><Leaf size={24} /></ClaieBadge>
-          <span className="text-sm" style={{ color: C.inkSoft }}>Chargement…</span>
+          {erreurChargement ? (
+            <>
+              <span className="text-sm font-semibold" style={{ color: C.chili }}>Connexion trop lente ou indisponible</span>
+              <span className="text-xs" style={{ color: C.inkSoft }}>Vos données n'ont pas pu être chargées. Vérifiez votre connexion internet, puis réessayez.</span>
+              <button onClick={() => window.location.reload()}
+                className="mt-2 px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
+                Réessayer
+              </button>
+            </>
+          ) : (
+            <span className="text-sm" style={{ color: C.inkSoft }}>Chargement…</span>
+          )}
         </div>
       </div>
     );
@@ -1129,13 +1161,19 @@ export default function App() {
                   placeholder="Rechercher un client…"
                   className="w-full px-4 py-2.5 rounded-xl text-sm mb-4" style={inputStyle} />
 
-                {clients
-                  .filter((cl) => {
-                    const q = rechercheCommandes.trim().toLowerCase();
-                    if (!q) return true;
-                    return (cl.nom || "").toLowerCase().includes(q) || (cl.tel || "").toLowerCase().includes(q);
-                  })
-                  .map((cl) => ({ cl, cmds: commandes.filter((c) => c.clientId === cl.id) }))
+                {[
+                  ...clients
+                    .filter((cl) => {
+                      const q = rechercheCommandes.trim().toLowerCase();
+                      if (!q) return true;
+                      return (cl.nom || "").toLowerCase().includes(q) || (cl.tel || "").toLowerCase().includes(q);
+                    })
+                    .map((cl) => ({ cl, cmds: commandes.filter((c) => c.clientId === cl.id) })),
+                  // Commandes orphelines : le client associé a été supprimé — on ne les cache jamais,
+                  // pour ne jamais perdre de vue une vente réelle.
+                  { cl: { id: "__orphelin__", nom: "⚠️ Client supprimé", tel: "" },
+                    cmds: commandes.filter((c) => !clients.some((cl) => cl.id === c.clientId)) },
+                ]
                   .filter((g) => g.cmds.length > 0)
                   .sort((a, b) => {
                     const duA = a.cmds.reduce((s, c) => s + montantReste(c), 0);
@@ -1556,16 +1594,18 @@ export default function App() {
                 ) : (
                   <div className="rounded-2xl overflow-hidden mb-6" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                     {achats.slice().reverse().map((a) => (
-                      <div key={a.id} className="p-4 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <button key={a.id} onClick={() => setEditAchat(a)}
+                        className="w-full text-left p-4 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
                         <div className="min-w-0">
                           <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{a.designation}</div>
                           <div className="text-xs" style={{ color: C.inkSoft }}>{fmtDate(a.date)}{a.fournisseur ? ` · ${a.fournisseur}` : ""}</div>
                         </div>
                         <span className="mono text-sm font-semibold shrink-0" style={{ color: C.chili }}>− {fcfa(a.montant)}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
+
 
                 <h3 className="font-bold mb-3" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Journal des ventes</h3>
                 <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
@@ -1800,10 +1840,10 @@ export default function App() {
       {showCommandeModal && (
         <AddCommandeModal clients={clients} produits={produits} onClose={() => setShowCommandeModal(false)}
           onSave={(c) => {
-              updateCommandes([...commandes, c]);
-              setShowCommandeModal(false);
-              notifierGerant("Nouvelle commande", `Nouvelle commande de ${nomClient(c.clientId)} : ${fcfa(montantCommande(c))} (${c.statut}).`);
-            }} />
+            updateCommandes([...commandes, c]);
+            setShowCommandeModal(false);
+            notifierClient(clients.find((cl) => cl.id === c.clientId)?.tel, `Bonjour, votre commande de ${fcfa(montantCommande(c))} a bien été enregistrée par HÉLÈNE Multiservices. Merci pour votre confiance !`);
+          }} />
       )}
       {showDocModal && (
         <AddDocModal
@@ -1864,6 +1904,11 @@ export default function App() {
       {showAchatModal && (
         <AddAchatModal onClose={() => setShowAchatModal(false)}
           onSave={(a) => { updateAchats([...achats, a]); setShowAchatModal(false); }} />
+      )}
+      {editAchat && (
+        <EditAchatModal achat={editAchat} onClose={() => setEditAchat(null)}
+          onSave={(a) => { updateAchats(achats.map((x) => x.id === a.id ? a : x)); setEditAchat(null); }}
+          onDelete={() => { updateAchats(achats.filter((x) => x.id !== editAchat.id)); setEditAchat(null); }} />
       )}
       {showDepenseModal && (
         <AddDepenseModal onClose={() => setShowDepenseModal(false)}
@@ -2080,7 +2125,7 @@ function AddCommandeModal({ clients, produits, onClose, onSave }) {
             className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
         </Field>
       )}
-{zone.tarif > 0 && (
+      {zone.tarif > 0 && (
         <Field label={`Frais de transport — FCFA (calculé : ${fcfa(fraisTransportAuto)})`}>
           <div className="flex gap-2">
             <input type="number" min="0" value={fraisTransport}
@@ -2110,6 +2155,7 @@ function AddCommandeModal({ clients, produits, onClose, onSave }) {
           </div>
         </Field>
       )}
+
       {/* Récapitulatif */}
       <div className="rounded-xl p-3 mb-3 text-xs" style={{ background: C.bg, border: `1px solid ${C.border}` }}>
         <div className="flex justify-between py-0.5"><span style={{ color: C.inkSoft }}>Produits</span><span className="mono" style={{ color: C.ink }}>{fcfa(sousTotal)}</span></div>
@@ -2520,6 +2566,32 @@ function AddAchatModal({ onClose, onSave }) {
       <button disabled={!designation || !montant} onClick={() => onSave({ id: "a" + Date.now(), designation, fournisseur, montant: Number(montant), date })}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
         Enregistrer
+      </button>
+    </Modal>
+  );
+}
+
+// Modifier ou supprimer un achat existant (en cas d'erreur de saisie)
+function EditAchatModal({ achat, onClose, onSave, onDelete }) {
+  const [designation, setDesignation] = useState(achat.designation || "");
+  const [fournisseur, setFournisseur] = useState(achat.fournisseur || "");
+  const [montant, setMontant] = useState(achat.montant ?? "");
+  const [date, setDate] = useState(achat.date || todayISO());
+  return (
+    <Modal title="Modifier l'achat" onClose={onClose}>
+      <Field label="Désignation"><input value={designation} onChange={(e) => setDesignation(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Fournisseur (optionnel)"><input value={fournisseur} onChange={(e) => setFournisseur(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Montant (FCFA)"><input type="number" value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <button disabled={!designation || !montant}
+        onClick={() => onSave({ ...achat, designation, fournisseur, montant: Number(montant), date })}
+        className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
+        Enregistrer les modifications
+      </button>
+      <button onClick={onDelete}
+        className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5"
+        style={{ background: C.chiliSoft, color: C.chili }}>
+        <Trash2 size={14} /> Supprimer cet achat
       </button>
     </Modal>
   );
@@ -3616,6 +3688,7 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
     if (!isGerant && ajouterNotif) {
       const total = cartTotal + fraisTransport + fraisEmballage;
       ajouterNotif(`🛒 Nouvelle commande de ${client?.nom || "un client"} — ${fcfa(total)}`);
+      notifierGerant("Nouvelle commande (client)", `${client?.nom || "Un client"} vient de passer une commande depuis son espace : ${fcfa(total)}.`);
     }
     setCart({}); setZoneId("bouafle"); setEmballage(false); setPlaced(true);
     setTimeout(() => setPlaced(false), 3000);
@@ -3734,6 +3807,7 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
                             : c));
                           if (!isGerant && ajouterNotif) {
                             ajouterNotif(`💰 ${client?.nom || "Un client"} signale un versement de ${fcfa(Number(montantSignale))} par ${moyenSignale}`);
+                            notifierGerant("Versement signalé (client)", `${client?.nom || "Un client"} signale avoir versé ${fcfa(Number(montantSignale))} par ${moyenSignale} — à vérifier.`);
                           }
                           setSignalerPour(null); setMontantSignale("");
                         }}
