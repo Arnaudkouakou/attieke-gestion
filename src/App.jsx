@@ -1982,6 +1982,8 @@ function AddCommandeModal({ clients, produits, onClose, onSave }) {
   const [zoneId, setZoneId] = useState("bouafle");
   const [emballage, setEmballage] = useState(false);
   const [nbSacsManuel, setNbSacsManuel] = useState(null); // null = automatique
+  const [fraisTransportManuel, setFraisTransportManuel] = useState(null); // null = automatique
+  const [fraisEmballageManuel, setFraisEmballageManuel] = useState(null); // null = automatique
 
   const addLigne = () => setItems([...items, { produitId: produits[0]?.id || "", qte: 1 }]);
   const updateLigne = (i, field, val) => setItems(items.map((it, idx) => idx === i ? { ...it, [field]: val } : it));
@@ -1990,8 +1992,10 @@ function AddCommandeModal({ clients, produits, onClose, onSave }) {
   const zone = ZONES_LIVRAISON.find((z) => z.id === zoneId);
   const nbSacsAuto = compterSacs(items, produits);
   const nbSacs = nbSacsManuel !== null ? Number(nbSacsManuel) : nbSacsAuto;
-  const fraisTransport = zone.tarif * nbSacs;
-  const fraisEmballage = emballage ? TARIF_EMBALLAGE * nbSacs : 0;
+  const fraisTransportAuto = zone.tarif * nbSacs;
+  const fraisEmballageAuto = emballage ? TARIF_EMBALLAGE * nbSacs : 0;
+  const fraisTransport = fraisTransportManuel !== null ? Number(fraisTransportManuel) : fraisTransportAuto;
+  const fraisEmballage = fraisEmballageManuel !== null ? Number(fraisEmballageManuel) : fraisEmballageAuto;
   const sousTotal = items.reduce((s, it) => {
     const p = produits.find((x) => x.id === it.produitId);
     return s + (p ? p.prix * Number(it.qte || 0) : 0);
@@ -2037,7 +2041,36 @@ function AddCommandeModal({ clients, produits, onClose, onSave }) {
             className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
         </Field>
       )}
-
+{zone.tarif > 0 && (
+        <Field label={`Frais de transport — FCFA (calculé : ${fcfa(fraisTransportAuto)})`}>
+          <div className="flex gap-2">
+            <input type="number" min="0" value={fraisTransport}
+              onChange={(e) => setFraisTransportManuel(e.target.value)}
+              className="flex-1 px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+            {fraisTransportManuel !== null && (
+              <button onClick={() => setFraisTransportManuel(null)}
+                className="px-3 rounded-lg text-xs font-semibold" style={{ background: C.bgAlt, color: C.inkSoft }}>
+                Auto
+              </button>
+            )}
+          </div>
+        </Field>
+      )}
+      {emballage && (
+        <Field label={`Frais d'emballage — FCFA (calculé : ${fcfa(fraisEmballageAuto)})`}>
+          <div className="flex gap-2">
+            <input type="number" min="0" value={fraisEmballage}
+              onChange={(e) => setFraisEmballageManuel(e.target.value)}
+              className="flex-1 px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+            {fraisEmballageManuel !== null && (
+              <button onClick={() => setFraisEmballageManuel(null)}
+                className="px-3 rounded-lg text-xs font-semibold" style={{ background: C.bgAlt, color: C.inkSoft }}>
+                Auto
+              </button>
+            )}
+          </div>
+        </Field>
+      )}
       {/* Récapitulatif */}
       <div className="rounded-xl p-3 mb-3 text-xs" style={{ background: C.bg, border: `1px solid ${C.border}` }}>
         <div className="flex justify-between py-0.5"><span style={{ color: C.inkSoft }}>Produits</span><span className="mono" style={{ color: C.ink }}>{fcfa(sousTotal)}</span></div>
