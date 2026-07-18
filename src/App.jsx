@@ -33,6 +33,19 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtDate = (iso) =>
   new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
 
+// Regroupement par période (jour / mois / année) — utilisé pour les journaux (paies, achats,
+// ventes, dépenses) afin qu'ils n'affichent jamais une liste plate qui grossit indéfiniment.
+function cleGroupe(dateStr, granularite) {
+  if (granularite === "annee") return dateStr.slice(0, 4);
+  if (granularite === "mois") return dateStr.slice(0, 7);
+  return dateStr.slice(0, 10) || dateStr; // "jour" — si la date n'a que "YYYY-MM" (paie mensuelle), reste à ce niveau
+}
+function libelleGroupe(cle) {
+  if (cle.length === 4) return cle;
+  if (cle.length === 7) return new Date(cle + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  return fmtDate(cle);
+}
+
 const ENTREPRISE = {
   nom: "HÉLÈNE Multiservices",
   slogan: "Attiéké de qualité, tradition et fraîcheur",
@@ -408,6 +421,12 @@ export default function App() {
   const [fichePaie, setFichePaie] = useState(null); // employé dont on affiche la fiche de paie
   const [paieAnterieure, setPaieAnterieure] = useState(null); // employé pour qui on ajoute une paie d'un jour antérieur
   const [filtrePersonnel, setFiltrePersonnel] = useState("actifs"); // "actifs" | "anciens"
+  const [rechercherPersonnel, setRecherchePersonnel] = useState("");
+  const [vuePersonnel, setVuePersonnel] = useState("cartes"); // "cartes" | "liste"
+  const [granulPaies, setGranulPaies] = useState("jour"); // "jour" | "mois" | "annee"
+  const [nbGroupesPaiesAffiches, setNbGroupesPaiesAffiches] = useState(14);
+  const [granulAchatsVentes, setGranulAchatsVentes] = useState("jour");
+  const [granulDepenses, setGranulDepenses] = useState("jour");
   const [showFichePersonnel, setShowFichePersonnel] = useState(false);
   const [filtreClients, setFiltreClients] = useState("actifs"); // "actifs" | "anciens"
   const [showFicheClients, setShowFicheClients] = useState(false);
@@ -417,6 +436,11 @@ export default function App() {
   const [showMaterielModal, setShowMaterielModal] = useState(false);
   const [showAchatModal, setShowAchatModal] = useState(false);
   const [editAchat, setEditAchat] = useState(null);
+  const [editMateriel, setEditMateriel] = useState(null);
+  const [editDepense, setEditDepense] = useState(null);
+  const [rechercheAchats, setRechercheAchats] = useState("");
+  const [rechercheVentes, setRechercheVentes] = useState("");
+  const [rechercheDepenses, setRechercheDepenses] = useState("");
   const [livraisonCmd, setLivraisonCmd] = useState(null);
   const [showDepenseModal, setShowDepenseModal] = useState(false);
   const [showRapport, setShowRapport] = useState(false);
@@ -1518,38 +1542,63 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex rounded-lg overflow-hidden mb-4 w-fit" style={{ border: `1px solid ${C.border}` }}>
-                  {[["actifs", "Actifs"], ["anciens", "Anciens employés"]].map(([v, label]) => (
-                    <button key={v} onClick={() => setFiltrePersonnel(v)}
-                      className="px-3 py-1.5 text-xs font-semibold"
-                      style={{ background: filtrePersonnel === v ? C.green : "transparent", color: filtrePersonnel === v ? "#fff" : C.inkSoft }}>
-                      {label}
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                  <div className="flex rounded-lg overflow-hidden w-fit" style={{ border: `1px solid ${C.border}` }}>
+                    {[["actifs", "Actifs"], ["anciens", "Anciens employés"]].map(([v, label]) => (
+                      <button key={v} onClick={() => setFiltrePersonnel(v)}
+                        className="px-3 py-1.5 text-xs font-semibold"
+                        style={{ background: filtrePersonnel === v ? C.green : "transparent", color: filtrePersonnel === v ? "#fff" : C.inkSoft }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex rounded-lg overflow-hidden w-fit" style={{ border: `1px solid ${C.border}` }}>
+                    {[["cartes", "Cartes"], ["liste", "Liste"]].map(([v, label]) => (
+                      <button key={v} onClick={() => setVuePersonnel(v)}
+                        className="px-3 py-1.5 text-xs font-semibold"
+                        style={{ background: vuePersonnel === v ? C.green : "transparent", color: vuePersonnel === v ? "#fff" : C.inkSoft }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                {personnel.filter((p) => filtrePersonnel === "actifs" ? p.actif !== false : p.actif === false).length === 0 ? (
-                  <div className="rounded-2xl p-8 text-center" style={{ background: C.card, border: `1px dashed ${C.border}` }}>
-                    <div className="flex justify-center mb-3"><ClaieBadge size={48}><UserCog size={20} /></ClaieBadge></div>
-                    <p className="text-sm font-semibold mb-1" style={{ color: C.ink }}>
-                      {filtrePersonnel === "actifs" ? "Aucun employé actif" : "Aucun ancien employé"}
-                    </p>
-                    <p className="text-xs" style={{ color: C.inkSoft }}>
-                      {filtrePersonnel === "actifs" ? "Ajoute ton personnel : photo, poste, salaire, contact…" : "Les employés partis apparaîtront ici."}
-                    </p>
-                  </div>
-                ) : (
+                <input
+                  value={rechercherPersonnel}
+                  onChange={(e) => setRecherchePersonnel(e.target.value)}
+                  placeholder="Rechercher un employé (nom, poste, téléphone…)"
+                  className="w-full px-4 py-2.5 rounded-xl text-sm mb-4" style={inputStyle} />
+
+                {(() => {
+                  const q = rechercherPersonnel.trim().toLowerCase();
+                  const listeFiltree = personnel
+                    .filter((p) => filtrePersonnel === "actifs" ? p.actif !== false : p.actif === false)
+                    .filter((p) => !q || [p.nom, p.poste, p.tel].some((v) => (v || "").toLowerCase().includes(q)));
+                  if (listeFiltree.length === 0) {
+                    return (
+                      <div className="rounded-2xl p-8 text-center" style={{ background: C.card, border: `1px dashed ${C.border}` }}>
+                        <div className="flex justify-center mb-3"><ClaieBadge size={48}><UserCog size={20} /></ClaieBadge></div>
+                        <p className="text-sm font-semibold mb-1" style={{ color: C.ink }}>
+                          {q ? "Aucun résultat" : filtrePersonnel === "actifs" ? "Aucun employé actif" : "Aucun ancien employé"}
+                        </p>
+                        <p className="text-xs" style={{ color: C.inkSoft }}>
+                          {q ? "Essaie un autre nom, poste ou numéro." : filtrePersonnel === "actifs" ? "Ajoute ton personnel : photo, poste, salaire, contact…" : "Les employés partis apparaîtront ici."}
+                        </p>
+                      </div>
+                    );
+                  }
+                  return (
                   <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-                    {personnel.filter((p) => filtrePersonnel === "actifs" ? p.actif !== false : p.actif === false).map((p) => (
-                      <div key={p.id} className="p-4" style={{ borderBottom: `1px solid ${C.border}` }}>
+                    {listeFiltree.map((p) => (
+                      <div key={p.id} className={vuePersonnel === "liste" ? "p-3" : "p-4"} style={{ borderBottom: `1px solid ${C.border}` }}>
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-3 min-w-0">
                             {p.photo ? (
                               <img src={p.photo} alt={p.nom}
-                                className="w-12 h-12 rounded-full object-cover shrink-0"
+                                className={vuePersonnel === "liste" ? "w-8 h-8 rounded-full object-cover shrink-0" : "w-12 h-12 rounded-full object-cover shrink-0"}
                                 style={{ border: `2px solid ${p.actif === false ? C.border : C.green}` }} />
                             ) : (
-                              <ClaieBadge size={48}><UserCog size={18} /></ClaieBadge>
+                              <ClaieBadge size={vuePersonnel === "liste" ? 32 : 48}><UserCog size={vuePersonnel === "liste" ? 14 : 18} /></ClaieBadge>
                             )}
                             <div className="min-w-0">
                               <div className="font-semibold text-sm flex items-center gap-2" style={{ color: C.ink }}>
@@ -1559,14 +1608,16 @@ export default function App() {
                                 )}
                               </div>
                               <div className="text-xs" style={{ color: C.inkSoft }}>{p.poste}{p.tel ? ` · ${p.tel}` : ""}</div>
-                              <div className="text-xs mt-0.5 space-y-0.5" style={{ color: C.inkSoft }}>
-                                {p.adresse && <div>Adresse : {p.adresse}</div>}
-                                {p.dateNaissance && <div>Né(e) le {fmtDate(p.dateNaissance)}</div>}
-                                {p.cni && <div>Pièce d'identité : {p.cni}</div>}
-                                {p.contactUrgence && <div>Contact d'urgence : {p.contactUrgence}</div>}
-                                {p.dateEmbauche && <div>Embauché(e) le {fmtDate(p.dateEmbauche)}</div>}
-                                {p.actif === false && p.dateDepart && <div>Parti(e) le {fmtDate(p.dateDepart)}</div>}
-                              </div>
+                              {vuePersonnel === "cartes" && (
+                                <div className="text-xs mt-0.5 space-y-0.5" style={{ color: C.inkSoft }}>
+                                  {p.adresse && <div>Adresse : {p.adresse}</div>}
+                                  {p.dateNaissance && <div>Né(e) le {fmtDate(p.dateNaissance)}</div>}
+                                  {p.cni && <div>Pièce d'identité : {p.cni}</div>}
+                                  {p.contactUrgence && <div>Contact d'urgence : {p.contactUrgence}</div>}
+                                  {p.dateEmbauche && <div>Embauché(e) le {fmtDate(p.dateEmbauche)}</div>}
+                                  {p.actif === false && p.dateDepart && <div>Parti(e) le {fmtDate(p.dateDepart)}</div>}
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="text-right shrink-0">
@@ -1574,6 +1625,7 @@ export default function App() {
                             <div className="text-[11px]" style={{ color: C.inkSoft }}>par {(p.typePaie || "mensuel") === "journalier" ? "jour" : "mois"}</div>
                           </div>
                         </div>
+                        {vuePersonnel === "cartes" && (
                         <div className="flex items-center gap-2 mt-3 flex-wrap">
                           <button onClick={() => setPersonnelEdit(p)}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
@@ -1638,10 +1690,12 @@ export default function App() {
                             <Trash2 size={12} /> Supprimer
                           </button>
                         </div>
+                        )}
                       </div>
                     ))}
                   </div>
-                )}
+                  );
+                })()}
 
                 {/* JOURNAL DES PAIES */}
                 {paies.length > 0 && (
@@ -1650,47 +1704,99 @@ export default function App() {
                     <p className="text-xs mb-3" style={{ color: C.inkSoft }}>
                       Chaque journée (ou mois) écoulée est enregistrée automatiquement, marquée "non payé" par défaut. Touche le statut pour le changer : <span style={{ color: C.chili, fontWeight: 600 }}>Non payé</span> → <span style={{ color: C.greenDeep, fontWeight: 600 }}>Payé</span> → <span style={{ fontWeight: 600 }}>Repos</span> (journée non travaillée, non comptée) seulement quand le versement a réellement eu lieu.
                     </p>
-                    <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-                      {paies
-                        .slice()
-                        .sort((a, b) => b.periode.localeCompare(a.periode))
-                        .slice(0, 30)
-                        .map((pa) => {
-                          const emp = personnel.find((e) => e.id === pa.employeId);
-                          const libPeriode = pa.type === "mensuel"
-                            ? new Date(pa.periode + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })
-                            : fmtDate(pa.periode);
-                          const statut = pa.statut;
-                          const suivant = pa.type === "journalier"
-                            ? (statut === "payé" ? "non payé" : statut === "non payé" ? "repos" : "payé")
-                            : (statut === "payé" ? "non payé" : "payé");
-                          const styles = {
-                            "payé": { bg: C.greenSoft, fg: C.greenDeep, label: "Payé ✓" },
-                            "non payé": { bg: C.chiliSoft, fg: C.chili, label: "Non payé" },
-                            "repos": { bg: C.bgAlt, fg: C.inkSoft, label: "Repos" },
-                          };
-                          const s = styles[statut] || styles["payé"];
-                          return (
-                            <div key={pa.id} className="p-3.5 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}`, opacity: statut === "repos" ? 0.65 : 1 }}>
-                              <div className="min-w-0">
-                                <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{emp?.nom || "—"}</div>
-                                <div className="text-xs capitalize" style={{ color: C.inkSoft }}>
-                                  {libPeriode} · {pa.type === "journalier" ? "journée" : "mois"}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className="mono text-sm font-semibold" style={{ color: statut === "repos" ? C.inkSoft : C.ink, textDecoration: statut === "repos" ? "line-through" : "none" }}>{fcfa(pa.montant)}</span>
-                                <button
-                                  onClick={() => updatePaies(paies.map((x) => x.id === pa.id ? { ...x, statut: suivant } : x))}
-                                  className="px-3 py-1.5 rounded-lg text-xs font-semibold w-24"
-                                  style={{ background: s.bg, color: s.fg }}>
-                                  {s.label}
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
+                    <div className="flex rounded-lg overflow-hidden mb-3 w-fit" style={{ border: `1px solid ${C.border}` }}>
+                      {[["jour", "Par jour"], ["mois", "Par mois"], ["annee", "Par année"]].map(([v, label]) => (
+                        <button key={v} onClick={() => { setGranulPaies(v); setNbGroupesPaiesAffiches(14); }}
+                          className="px-3 py-1.5 text-xs font-semibold"
+                          style={{ background: granulPaies === v ? C.green : "transparent", color: granulPaies === v ? "#fff" : C.inkSoft }}>
+                          {label}
+                        </button>
+                      ))}
                     </div>
+                    {(() => {
+                      const groupes = {};
+                      paies.forEach((pa) => {
+                        const cle = cleGroupe(pa.periode, granulPaies);
+                        groupes[cle] = groupes[cle] || [];
+                        groupes[cle].push(pa);
+                      });
+                      const clesTriees = Object.keys(groupes).sort().reverse();
+                      const clesAffichees = granulPaies === "jour" ? clesTriees.slice(0, nbGroupesPaiesAffiches) : clesTriees;
+                      return (
+                        <>
+                          <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+                            {clesAffichees.map((cle) => {
+                              const entrees = groupes[cle];
+                              const totalPaye = entrees.filter((p) => p.statut === "payé").reduce((s, p) => s + p.montant, 0);
+                              const totalDu = entrees.filter((p) => p.statut === "non payé").reduce((s, p) => s + p.montant, 0);
+                              if (granulPaies === "jour") {
+                                return (
+                                  <div key={cle} style={{ borderBottom: `1px solid ${C.border}` }}>
+                                    <div className="px-3.5 pt-3 pb-1.5 flex items-center justify-between" style={{ background: C.bg }}>
+                                      <span className="text-xs font-bold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</span>
+                                      <span className="text-[11px]" style={{ color: C.inkSoft }}>
+                                        {totalPaye > 0 && <span style={{ color: C.greenDeep }}>{fcfa(totalPaye)} payé</span>}
+                                        {totalPaye > 0 && totalDu > 0 && " · "}
+                                        {totalDu > 0 && <span style={{ color: C.chili }}>{fcfa(totalDu)} dû</span>}
+                                      </span>
+                                    </div>
+                                    {entrees.map((pa) => {
+                                      const emp = personnel.find((e) => e.id === pa.employeId);
+                                      const statut = pa.statut;
+                                      const suivant = pa.type === "journalier"
+                                        ? (statut === "payé" ? "non payé" : statut === "non payé" ? "repos" : "payé")
+                                        : (statut === "payé" ? "non payé" : "payé");
+                                      const styles = {
+                                        "payé": { bg: C.greenSoft, fg: C.greenDeep, label: "Payé ✓" },
+                                        "non payé": { bg: C.chiliSoft, fg: C.chili, label: "Non payé" },
+                                        "repos": { bg: C.bgAlt, fg: C.inkSoft, label: "Repos" },
+                                      };
+                                      const s = styles[statut] || styles["payé"];
+                                      return (
+                                        <div key={pa.id} className="px-3.5 py-2.5 flex items-center justify-between gap-3" style={{ opacity: statut === "repos" ? 0.65 : 1 }}>
+                                          <div className="min-w-0">
+                                            <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{emp?.nom || "—"}</div>
+                                            <div className="text-xs" style={{ color: C.inkSoft }}>{pa.type === "journalier" ? "journée" : "mois"}</div>
+                                          </div>
+                                          <div className="flex items-center gap-2 shrink-0">
+                                            <span className="mono text-sm font-semibold" style={{ color: statut === "repos" ? C.inkSoft : C.ink, textDecoration: statut === "repos" ? "line-through" : "none" }}>{fcfa(pa.montant)}</span>
+                                            <button
+                                              onClick={() => updatePaies(paies.map((x) => x.id === pa.id ? { ...x, statut: suivant } : x))}
+                                              className="px-3 py-1.5 rounded-lg text-xs font-semibold w-24"
+                                              style={{ background: s.bg, color: s.fg }}>
+                                              {s.label}
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              }
+                              // Vue Mois / Année : résumé agrégé uniquement (pas de bascule individuelle ici)
+                              return (
+                                <div key={cle} className="px-3.5 py-3 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
+                                  <div>
+                                    <div className="text-sm font-semibold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</div>
+                                    <div className="text-xs" style={{ color: C.inkSoft }}>{entrees.length} entrée(s)</div>
+                                  </div>
+                                  <div className="text-right text-xs">
+                                    {totalPaye > 0 && <div style={{ color: C.greenDeep }} className="font-semibold mono">{fcfa(totalPaye)} payé</div>}
+                                    {totalDu > 0 && <div style={{ color: C.chili }} className="font-semibold mono">{fcfa(totalDu)} dû</div>}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {granulPaies === "jour" && clesTriees.length > nbGroupesPaiesAffiches && (
+                            <button onClick={() => setNbGroupesPaiesAffiches((n) => n + 14)}
+                              className="w-full mt-3 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                              Voir plus de jours
+                            </button>
+                          )}
+                        </>
+                      );
+                    })()}
                   </>
                 )}
               </div>
@@ -1740,7 +1846,7 @@ export default function App() {
                       };
                       const e = etatCouleurs[m.etat] || etatCouleurs["Bon état"];
                       return (
-                        <div key={m.id} className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+                        <button key={m.id} onClick={() => setEditMateriel(m)} className="text-left rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                           <div className="flex items-center justify-between mb-2">
                             <div className="font-semibold text-sm" style={{ color: C.ink }}>{m.nom}</div>
                             <span className="text-xs font-semibold px-2 py-1 rounded-full" style={{ background: e.bg, color: e.fg }}>{m.etat}</span>
@@ -1750,7 +1856,7 @@ export default function App() {
                             {m.valeur > 0 && <div>Valeur : <span className="mono">{fcfa(m.valeur)}</span></div>}
                             {m.dernierEntretien && <div>Dernier entretien : {fmtDate(m.dernierEntretien)}</div>}
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -1782,6 +1888,22 @@ export default function App() {
                   </div>
                 </div>
 
+                <div className="flex rounded-lg overflow-hidden mb-4 w-fit" style={{ border: `1px solid ${C.border}` }}>
+                  {[["jour", "Par jour"], ["mois", "Par mois"], ["annee", "Par année"]].map(([v, label]) => (
+                    <button key={v} onClick={() => setGranulAchatsVentes(v)}
+                      className="px-3 py-1.5 text-xs font-semibold"
+                      style={{ background: granulAchatsVentes === v ? C.green : "transparent", color: granulAchatsVentes === v ? "#fff" : C.inkSoft }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  value={rechercheAchats}
+                  onChange={(e) => setRechercheAchats(e.target.value)}
+                  placeholder="Rechercher un achat (désignation, fournisseur…)"
+                  className="w-full px-4 py-2.5 rounded-xl text-sm mb-4" style={inputStyle} />
+
                 <h3 className="font-bold mb-3" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Journal des achats</h3>
                 {achats.length === 0 ? (
                   <div className="rounded-2xl p-6 text-center mb-6" style={{ background: C.card, border: `1px dashed ${C.border}` }}>
@@ -1789,35 +1911,119 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="rounded-2xl overflow-hidden mb-6" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-                    {achats.slice().reverse().map((a) => (
-                      <button key={a.id} onClick={() => setEditAchat(a)}
-                        className="w-full text-left p-4 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{a.designation}</div>
-                          <div className="text-xs" style={{ color: C.inkSoft }}>{fmtDate(a.date)}{a.fournisseur ? ` · ${a.fournisseur}` : ""}</div>
-                        </div>
-                        <span className="mono text-sm font-semibold shrink-0" style={{ color: C.chili }}>− {fcfa(a.montant)}</span>
-                      </button>
-                    ))}
+                    {(() => {
+                      const q = rechercheAchats.trim().toLowerCase();
+                      const achatsFiltres = achats.filter((a) => !q || [a.designation, a.fournisseur].some((v) => (v || "").toLowerCase().includes(q)));
+                      const groupes = {};
+                      achatsFiltres.forEach((a) => {
+                        const cle = cleGroupe(a.date, granulAchatsVentes);
+                        groupes[cle] = groupes[cle] || [];
+                        groupes[cle].push(a);
+                      });
+                      if (achatsFiltres.length === 0) return <div className="p-6 text-center text-xs" style={{ color: C.inkSoft }}>Aucun résultat pour "{rechercheAchats}".</div>;
+                      return Object.keys(groupes).sort().reverse().map((cle) => {
+                        const entrees = groupes[cle];
+                        const total = entrees.reduce((s, a) => s + a.montant, 0);
+                        if (granulAchatsVentes !== "jour") {
+                          return (
+                            <div key={cle} className="p-4 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
+                              <div>
+                                <div className="text-sm font-semibold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</div>
+                                <div className="text-xs" style={{ color: C.inkSoft }}>{entrees.length} achat(s)</div>
+                              </div>
+                              <span className="mono text-sm font-semibold" style={{ color: C.chili }}>− {fcfa(total)}</span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={cle} style={{ borderBottom: `1px solid ${C.border}` }}>
+                            <div className="px-4 pt-3 pb-1.5 flex items-center justify-between" style={{ background: C.bg }}>
+                              <span className="text-xs font-bold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</span>
+                              <span className="text-[11px] font-semibold" style={{ color: C.chili }}>− {fcfa(total)}</span>
+                            </div>
+                            {entrees.map((a) => (
+                              <button key={a.id} onClick={() => setEditAchat(a)}
+                                className="w-full text-left px-4 py-2.5 flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{a.designation}</div>
+                                  <div className="text-xs" style={{ color: C.inkSoft }}>{a.fournisseur || "—"}</div>
+                                </div>
+                                <span className="mono text-sm font-semibold shrink-0" style={{ color: C.chili }}>− {fcfa(a.montant)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 )}
 
 
+                <input
+                  value={rechercheVentes}
+                  onChange={(e) => setRechercheVentes(e.target.value)}
+                  placeholder="Rechercher une vente (client, produit…)"
+                  className="w-full px-4 py-2.5 rounded-xl text-sm mb-4" style={inputStyle} />
+
                 <h3 className="font-bold mb-3" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Journal des ventes</h3>
-                <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-                  {commandes.slice().reverse().map((cmd) => (
-                    <div key={cmd.id} className="p-4 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{nomClient(cmd.clientId)}</div>
-                        <div className="text-xs" style={{ color: C.inkSoft }}>{fmtDate(cmd.date)} · {cmd.items.map((it) => `${it.qte}× ${nomProduit(it.produitId)}`).join(", ")}</div>
-                      </div>
-                      <div className="text-right shrink-0 flex flex-col items-end gap-1">
-                        <span className="mono text-sm font-semibold" style={{ color: C.greenDeep }}>+ {fcfa(montantCommande(cmd))}</span>
-                        <Badge statut={cmd.statut} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                {commandes.length === 0 ? (
+                  <div className="rounded-2xl p-6 text-center" style={{ background: C.card, border: `1px dashed ${C.border}` }}>
+                    <p className="text-xs" style={{ color: C.inkSoft }}>Aucune vente enregistrée.</p>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+                    {(() => {
+                      const q = rechercheVentes.trim().toLowerCase();
+                      const commandesFiltrees = commandes.filter((cmd) => {
+                        if (!q) return true;
+                        const texte = [nomClient(cmd.clientId), ...cmd.items.map((it) => nomProduit(it.produitId))].join(" ").toLowerCase();
+                        return texte.includes(q);
+                      });
+                      const groupes = {};
+                      commandesFiltrees.forEach((cmd) => {
+                        const cle = cleGroupe(cmd.date, granulAchatsVentes);
+                        groupes[cle] = groupes[cle] || [];
+                        groupes[cle].push(cmd);
+                      });
+                      if (commandesFiltrees.length === 0) return <div className="p-6 text-center text-xs" style={{ color: C.inkSoft }}>Aucun résultat pour "{rechercheVentes}".</div>;
+                      return Object.keys(groupes).sort().reverse().map((cle) => {
+                        const entrees = groupes[cle];
+                        const total = entrees.reduce((s, cmd) => s + montantCommande(cmd), 0);
+                        if (granulAchatsVentes !== "jour") {
+                          return (
+                            <div key={cle} className="p-4 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
+                              <div>
+                                <div className="text-sm font-semibold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</div>
+                                <div className="text-xs" style={{ color: C.inkSoft }}>{entrees.length} vente(s)</div>
+                              </div>
+                              <span className="mono text-sm font-semibold" style={{ color: C.greenDeep }}>+ {fcfa(total)}</span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={cle} style={{ borderBottom: `1px solid ${C.border}` }}>
+                            <div className="px-4 pt-3 pb-1.5 flex items-center justify-between" style={{ background: C.bg }}>
+                              <span className="text-xs font-bold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</span>
+                              <span className="text-[11px] font-semibold" style={{ color: C.greenDeep }}>+ {fcfa(total)}</span>
+                            </div>
+                            {entrees.map((cmd) => (
+                              <div key={cmd.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{nomClient(cmd.clientId)}</div>
+                                  <div className="text-xs" style={{ color: C.inkSoft }}>{cmd.items.map((it) => `${it.qte}× ${nomProduit(it.produitId)}`).join(", ")}</div>
+                                </div>
+                                <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                                  <span className="mono text-sm font-semibold" style={{ color: C.greenDeep }}>+ {fcfa(montantCommande(cmd))}</span>
+                                  <Badge statut={cmd.statut} />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
               </div>
             )}
             {section === "depenses" && (
@@ -1847,6 +2053,22 @@ export default function App() {
                   </div>
                 )}
 
+                <div className="flex rounded-lg overflow-hidden mb-4 w-fit" style={{ border: `1px solid ${C.border}` }}>
+                  {[["jour", "Par jour"], ["mois", "Par mois"], ["annee", "Par année"]].map(([v, label]) => (
+                    <button key={v} onClick={() => setGranulDepenses(v)}
+                      className="px-3 py-1.5 text-xs font-semibold"
+                      style={{ background: granulDepenses === v ? C.green : "transparent", color: granulDepenses === v ? "#fff" : C.inkSoft }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  value={rechercheDepenses}
+                  onChange={(e) => setRechercheDepenses(e.target.value)}
+                  placeholder="Rechercher une dépense (désignation, catégorie…)"
+                  className="w-full px-4 py-2.5 rounded-xl text-sm mb-4" style={inputStyle} />
+
                 {depenses.length === 0 ? (
                   <div className="rounded-2xl p-8 text-center" style={{ background: C.card, border: `1px dashed ${C.border}` }}>
                     <div className="flex justify-center mb-3"><ClaieBadge size={48}><Receipt size={20} /></ClaieBadge></div>
@@ -1855,15 +2077,49 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="rounded-2xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-                    {depenses.slice().reverse().map((d) => (
-                      <div key={d.id} className="p-4 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{d.designation}</div>
-                          <div className="text-xs" style={{ color: C.inkSoft }}>{fmtDate(d.date)} · {d.categorie}</div>
-                        </div>
-                        <span className="mono text-sm font-semibold shrink-0" style={{ color: C.chili }}>− {fcfa(d.montant)}</span>
-                      </div>
-                    ))}
+                    {(() => {
+                      const q = rechercheDepenses.trim().toLowerCase();
+                      const depensesFiltrees = depenses.filter((d) => !q || [d.designation, d.categorie].some((v) => (v || "").toLowerCase().includes(q)));
+                      const groupes = {};
+                      depensesFiltrees.forEach((d) => {
+                        const cle = cleGroupe(d.date, granulDepenses);
+                        groupes[cle] = groupes[cle] || [];
+                        groupes[cle].push(d);
+                      });
+                      if (depensesFiltrees.length === 0) return <div className="p-6 text-center text-xs" style={{ color: C.inkSoft }}>Aucun résultat pour "{rechercheDepenses}".</div>;
+                      return Object.keys(groupes).sort().reverse().map((cle) => {
+                        const entrees = groupes[cle];
+                        const total = entrees.reduce((s, d) => s + d.montant, 0);
+                        if (granulDepenses !== "jour") {
+                          return (
+                            <div key={cle} className="p-4 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
+                              <div>
+                                <div className="text-sm font-semibold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</div>
+                                <div className="text-xs" style={{ color: C.inkSoft }}>{entrees.length} dépense(s)</div>
+                              </div>
+                              <span className="mono text-sm font-semibold" style={{ color: C.chili }}>− {fcfa(total)}</span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={cle} style={{ borderBottom: `1px solid ${C.border}` }}>
+                            <div className="px-4 pt-3 pb-1.5 flex items-center justify-between" style={{ background: C.bg }}>
+                              <span className="text-xs font-bold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</span>
+                              <span className="text-[11px] font-semibold" style={{ color: C.chili }}>− {fcfa(total)}</span>
+                            </div>
+                            {entrees.map((d) => (
+                              <button key={d.id} onClick={() => setEditDepense(d)} className="w-full text-left px-4 py-2.5 flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{d.designation}</div>
+                                  <div className="text-xs" style={{ color: C.inkSoft }}>{d.categorie}</div>
+                                </div>
+                                <span className="mono text-sm font-semibold shrink-0" style={{ color: C.chili }}>− {fcfa(d.montant)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 )}
               </div>
@@ -2200,6 +2456,24 @@ export default function App() {
         <EditAchatModal achat={editAchat} onClose={() => setEditAchat(null)}
           onSave={(a) => { updateAchats(achats.map((x) => x.id === a.id ? a : x)); setEditAchat(null); afficherToast("Achat modifié"); }}
           onDelete={() => { updateAchats(achats.filter((x) => x.id !== editAchat.id)); setEditAchat(null); afficherToast("Achat supprimé"); }} />
+      )}
+      {editMateriel && (
+        <EditMaterielModal item={editMateriel} onClose={() => setEditMateriel(null)}
+          onSave={(m) => { updateMateriel(materiel.map((x) => x.id === m.id ? m : x)); setEditMateriel(null); afficherToast("Équipement modifié"); }}
+          onDelete={() => setConfirmation({
+            message: `Supprimer l'équipement "${editMateriel.nom}" ?`,
+            action: () => { updateMateriel(materiel.filter((x) => x.id !== editMateriel.id)); setEditMateriel(null); },
+            toastMessage: "Équipement supprimé",
+          })} />
+      )}
+      {editDepense && (
+        <EditDepenseModal depense={editDepense} onClose={() => setEditDepense(null)}
+          onSave={(d) => { updateDepenses(depenses.map((x) => x.id === d.id ? d : x)); setEditDepense(null); afficherToast("Dépense modifiée"); }}
+          onDelete={() => setConfirmation({
+            message: `Supprimer la dépense "${editDepense.designation}" ?`,
+            action: () => { updateDepenses(depenses.filter((x) => x.id !== editDepense.id)); setEditDepense(null); },
+            toastMessage: "Dépense supprimée",
+          })} />
       )}
       {livraisonCmd && (
         <LivraisonModal cmd={livraisonCmd} produits={produits} nomProduit={nomProduit}
@@ -3012,6 +3286,38 @@ function AddMaterielModal({ onClose, onSave }) {
   );
 }
 
+// Modifier ou supprimer un équipement existant
+function EditMaterielModal({ item, onClose, onSave, onDelete }) {
+  const [nom, setNom] = useState(item.nom || "");
+  const [quantite, setQuantite] = useState(item.quantite ?? 1);
+  const [valeur, setValeur] = useState(item.valeur ?? "");
+  const [etat, setEtat] = useState(item.etat || "Bon état");
+  const [dernierEntretien, setDernierEntretien] = useState(item.dernierEntretien || "");
+  return (
+    <Modal title="Modifier l'équipement" onClose={onClose}>
+      <Field label="Nom"><input value={nom} onChange={(e) => setNom(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Quantité"><input type="number" min="1" value={quantite} onChange={(e) => setQuantite(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Valeur d'achat (FCFA, optionnel)"><input type="number" value={valeur} onChange={(e) => setValeur(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="État">
+        <select value={etat} onChange={(e) => setEtat(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle}>
+          <option>Bon état</option><option>À entretenir</option><option>En panne</option>
+        </select>
+      </Field>
+      <Field label="Dernier entretien (optionnel)"><input type="date" value={dernierEntretien} onChange={(e) => setDernierEntretien(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <button disabled={!nom}
+        onClick={() => onSave({ ...item, nom, quantite: Number(quantite) || 1, valeur: Number(valeur) || 0, etat, dernierEntretien })}
+        className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
+        Enregistrer les modifications
+      </button>
+      <button onClick={onDelete}
+        className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5"
+        style={{ background: C.chiliSoft, color: C.chili }}>
+        <Trash2 size={14} /> Supprimer cet équipement
+      </button>
+    </Modal>
+  );
+}
+
 /* ---------------------------------------------------------
    MODALES ACHATS & DÉPENSES
 --------------------------------------------------------- */
@@ -3182,6 +3488,72 @@ function AddDepenseModal({ onClose, onSave }) {
       <button disabled={!designation || !montant} onClick={() => onSave({ id: "x" + Date.now(), designation, categorie, montant: Number(montant), date, photo })}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
         Enregistrer
+      </button>
+    </Modal>
+  );
+}
+
+// Modifier ou supprimer une dépense existante
+function EditDepenseModal({ depense, onClose, onSave, onDelete }) {
+  const [designation, setDesignation] = useState(depense.designation || "");
+  const [categorie, setCategorie] = useState(depense.categorie || "Entretien matériel");
+  const [montant, setMontant] = useState(depense.montant ?? "");
+  const [date, setDate] = useState(depense.date || todayISO());
+  const [photo, setPhoto] = useState(depense.photo || "");
+  const chargerPhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 640;
+        const ratio = Math.min(MAX / img.width, MAX / img.height, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        setPhoto(canvas.toDataURL("image/jpeg", 0.75));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  };
+  return (
+    <Modal title="Modifier la dépense" onClose={onClose}>
+      <Field label="Désignation"><input value={designation} onChange={(e) => setDesignation(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Catégorie">
+        <select value={categorie} onChange={(e) => setCategorie(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle}>
+          <option>Entretien matériel</option><option>Eau / Électricité</option><option>Transport</option><option>Autre</option>
+        </select>
+      </Field>
+      <Field label="Montant (FCFA)"><input type="number" value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label="Photo du justificatif (optionnel)">
+        <div className="flex flex-col items-center">
+          {photo && <img src={photo} alt="Justificatif" className="w-full max-w-[200px] rounded-lg mb-2 object-cover" style={{ border: `2px solid ${C.green}` }} />}
+          <div className="flex gap-2">
+            <label className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: C.greenSoft, color: C.greenDeep }}>
+              📷 Prendre une photo
+              <input type="file" accept="image/*" capture="environment" onChange={chargerPhoto} className="hidden" />
+            </label>
+            <label className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: C.bgAlt, color: C.ink }}>
+              Depuis la galerie
+              <input type="file" accept="image/*" onChange={chargerPhoto} className="hidden" />
+            </label>
+          </div>
+          {photo && <button onClick={() => setPhoto("")} className="text-[11px] mt-1" style={{ color: C.chili }}>Retirer la photo</button>}
+        </div>
+      </Field>
+      <button disabled={!designation || !montant}
+        onClick={() => onSave({ ...depense, designation, categorie, montant: Number(montant), date, photo })}
+        className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
+        Enregistrer les modifications
+      </button>
+      <button onClick={onDelete}
+        className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5"
+        style={{ background: C.chiliSoft, color: C.chili }}>
+        <Trash2 size={14} /> Supprimer cette dépense
       </button>
     </Modal>
   );
@@ -4309,6 +4681,7 @@ function LoginScreen({ clients, pin: pinAttendu = PIN_GERANT, recup, onResetPin,
   const connecterClient = () => {
     const cl = clients.find((c) => c.id === clientId);
     if (!cl) return;
+    if (cl.actif === false) { setErreur("Ce compte client a été marqué comme ancien et n'est plus accessible. Contactez HÉLÈNE Multiservices si besoin."); return; }
     const normalise = (s) => (s || "").replace(/\D/g, "");
     // Si le client a défini un mot de passe, c'est lui qui compte ; sinon, le numéro de téléphone sert de clé
     const ok = cl.motDePasse
