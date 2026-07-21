@@ -462,6 +462,18 @@ export default function App() {
   const [nbJoursAchatsAffiches, setNbJoursAchatsAffiches] = useState(14);
   const [nbJoursVentesAffiches, setNbJoursVentesAffiches] = useState(14);
   const [nbJoursDepensesAffiches, setNbJoursDepensesAffiches] = useState(14);
+  const clesAujourdhui = () => new Set([cleGroupe(todayISO(), "jour"), cleGroupe(todayISO(), "mois"), cleGroupe(todayISO(), "annee")]);
+  const [groupesAchatsOuverts, setGroupesAchatsOuverts] = useState(clesAujourdhui);
+  const [groupesVentesOuverts, setGroupesVentesOuverts] = useState(clesAujourdhui);
+  const [groupesDepensesOuverts, setGroupesDepensesOuverts] = useState(clesAujourdhui);
+  const creerToggler = (setter) => (cle) => setter((prev) => {
+    const next = new Set(prev);
+    if (next.has(cle)) next.delete(cle); else next.add(cle);
+    return next;
+  });
+  const togglerGroupeAchats = creerToggler(setGroupesAchatsOuverts);
+  const togglerGroupeVentes = creerToggler(setGroupesVentesOuverts);
+  const togglerGroupeDepenses = creerToggler(setGroupesDepensesOuverts);
   const [rechercheAchats, setRechercheAchats] = useState("");
   const [rechercheVentes, setRechercheVentes] = useState("");
   const [rechercheDepenses, setRechercheDepenses] = useState("");
@@ -1536,7 +1548,7 @@ export default function App() {
                         ))}
 
                         {/* Pied : encaissement global si plusieurs commandes non soldées */}
-                        {du > 0 && cmds.filter((c) => montantReste(c) > 0).length > 1 && (
+                        {ouvert && du > 0 && cmds.filter((c) => montantReste(c) > 0).length > 1 && (
                           <div className="p-3" style={{ borderTop: `1px solid ${C.border}`, background: C.bg }}>
                             <button
                               onClick={() => setEncaisserClient({ client: cl, du })}
@@ -2027,29 +2039,23 @@ export default function App() {
                       return clesAffichees.map((cle) => {
                         const entrees = groupes[cle];
                         const total = entrees.reduce((s, a) => s + a.montant, 0);
-                        if (granulAchatsVentes !== "jour") {
-                          return (
-                            <div key={cle} className="p-4 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
-                              <div>
-                                <div className="text-sm font-semibold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</div>
-                                <div className="text-xs" style={{ color: C.inkSoft }}>{entrees.length} achat(s)</div>
-                              </div>
-                              <span className="mono text-sm font-semibold" style={{ color: C.chili }}>− {fcfa(total)}</span>
-                            </div>
-                          );
-                        }
+                        const ouvert = groupesAchatsOuverts.has(cle);
                         return (
                           <div key={cle} style={{ borderBottom: `1px solid ${C.border}` }}>
-                            <div className="px-4 pt-3 pb-1.5 flex items-center justify-between" style={{ background: C.bg }}>
-                              <span className="text-xs font-bold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</span>
+                            <button onClick={() => togglerGroupeAchats(cle)}
+                              className="w-full px-4 py-3 flex items-center justify-between gap-3" style={{ background: ouvert ? C.bg : "transparent" }}>
+                              <span className="text-xs font-bold capitalize flex items-center gap-1.5" style={{ color: C.ink }}>
+                                <ChevronRight size={13} style={{ transform: ouvert ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+                                {libelleGroupe(cle)}
+                              </span>
                               <span className="text-[11px] font-semibold" style={{ color: C.chili }}>− {fcfa(total)}</span>
-                            </div>
-                            {entrees.map((a) => (
+                            </button>
+                            {ouvert && entrees.map((a) => (
                               <button key={a.id} onClick={() => setEditAchat(a)}
                                 className="w-full text-left px-4 py-2.5 flex items-center justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{a.designation}</div>
-                                  <div className="text-xs" style={{ color: C.inkSoft }}>{a.fournisseur || "—"}</div>
+                                  <div className="text-xs" style={{ color: C.inkSoft }}>{a.fournisseur || "—"}{granulAchatsVentes !== "jour" ? ` · ${fmtDate(a.date)}` : ""}</div>
                                 </div>
                                 <span className="mono text-sm font-semibold shrink-0" style={{ color: C.chili }}>− {fcfa(a.montant)}</span>
                               </button>
@@ -2106,28 +2112,25 @@ export default function App() {
                       return clesAffichees.map((cle) => {
                         const entrees = groupes[cle];
                         const total = entrees.reduce((s, cmd) => s + montantCommande(cmd), 0);
-                        if (granulAchatsVentes !== "jour") {
-                          return (
-                            <div key={cle} className="p-4 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
-                              <div>
-                                <div className="text-sm font-semibold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</div>
-                                <div className="text-xs" style={{ color: C.inkSoft }}>{entrees.length} vente(s)</div>
-                              </div>
-                              <span className="mono text-sm font-semibold" style={{ color: C.greenDeep }}>+ {fcfa(total)}</span>
-                            </div>
-                          );
-                        }
+                        const ouvert = groupesVentesOuverts.has(cle);
                         return (
                           <div key={cle} style={{ borderBottom: `1px solid ${C.border}` }}>
-                            <div className="px-4 pt-3 pb-1.5 flex items-center justify-between" style={{ background: C.bg }}>
-                              <span className="text-xs font-bold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</span>
+                            <button onClick={() => togglerGroupeVentes(cle)}
+                              className="w-full px-4 py-3 flex items-center justify-between gap-3" style={{ background: ouvert ? C.bg : "transparent" }}>
+                              <span className="text-xs font-bold capitalize flex items-center gap-1.5" style={{ color: C.ink }}>
+                                <ChevronRight size={13} style={{ transform: ouvert ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+                                {libelleGroupe(cle)}
+                              </span>
                               <span className="text-[11px] font-semibold" style={{ color: C.greenDeep }}>+ {fcfa(total)}</span>
-                            </div>
-                            {entrees.map((cmd) => (
+                            </button>
+                            {ouvert && entrees.map((cmd) => (
                               <div key={cmd.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{nomClient(cmd.clientId)}</div>
-                                  <div className="text-xs" style={{ color: C.inkSoft }}>{cmd.items.map((it) => `${it.qte}× ${nomProduit(it.produitId)}`).join(", ")}</div>
+                                  <div className="text-xs" style={{ color: C.inkSoft }}>
+                                    {cmd.items.map((it) => `${it.qte}× ${nomProduit(it.produitId)}`).join(", ")}
+                                    {granulAchatsVentes !== "jour" ? ` · ${fmtDate(cmd.date)}` : ""}
+                                  </div>
                                 </div>
                                 <div className="text-right shrink-0 flex flex-col items-end gap-1">
                                   <span className="mono text-sm font-semibold" style={{ color: C.greenDeep }}>+ {fcfa(montantCommande(cmd))}</span>
@@ -2225,28 +2228,22 @@ export default function App() {
                       return clesAffichees.map((cle) => {
                         const entrees = groupes[cle];
                         const total = entrees.reduce((s, d) => s + d.montant, 0);
-                        if (granulDepenses !== "jour") {
-                          return (
-                            <div key={cle} className="p-4 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
-                              <div>
-                                <div className="text-sm font-semibold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</div>
-                                <div className="text-xs" style={{ color: C.inkSoft }}>{entrees.length} dépense(s)</div>
-                              </div>
-                              <span className="mono text-sm font-semibold" style={{ color: C.chili }}>− {fcfa(total)}</span>
-                            </div>
-                          );
-                        }
+                        const ouvert = groupesDepensesOuverts.has(cle);
                         return (
                           <div key={cle} style={{ borderBottom: `1px solid ${C.border}` }}>
-                            <div className="px-4 pt-3 pb-1.5 flex items-center justify-between" style={{ background: C.bg }}>
-                              <span className="text-xs font-bold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</span>
+                            <button onClick={() => togglerGroupeDepenses(cle)}
+                              className="w-full px-4 py-3 flex items-center justify-between gap-3" style={{ background: ouvert ? C.bg : "transparent" }}>
+                              <span className="text-xs font-bold capitalize flex items-center gap-1.5" style={{ color: C.ink }}>
+                                <ChevronRight size={13} style={{ transform: ouvert ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+                                {libelleGroupe(cle)}
+                              </span>
                               <span className="text-[11px] font-semibold" style={{ color: C.chili }}>− {fcfa(total)}</span>
-                            </div>
-                            {entrees.map((d) => (
+                            </button>
+                            {ouvert && entrees.map((d) => (
                               <button key={d.id} onClick={() => setEditDepense(d)} className="w-full text-left px-4 py-2.5 flex items-center justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{d.designation}</div>
-                                  <div className="text-xs" style={{ color: C.inkSoft }}>{d.categorie}</div>
+                                  <div className="text-xs" style={{ color: C.inkSoft }}>{d.categorie}{granulDepenses !== "jour" ? ` · ${fmtDate(d.date)}` : ""}</div>
                                 </div>
                                 <span className="mono text-sm font-semibold shrink-0" style={{ color: C.chili }}>− {fcfa(d.montant)}</span>
                               </button>
@@ -5315,6 +5312,8 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
   const [zoneId, setZoneId] = useState("bouafle");
   const [emballage, setEmballage] = useState(false);
   const [clientVueComparatif, setClientVueComparatif] = useState("mois");
+  const [ouvertsCommandesClient, setOuvertsCommandesClient] = useState({}); // { [dateCle]: true/false override }
+  const [ouvertsRecusClient, setOuvertsRecusClient] = useState({});
 
   const mesCommandes = commandes.filter((c) => c.clientId === activeClientId);
   const mesRecus = (documents || []).filter((d) => d.type === "recu" && d.clientId === activeClientId);
@@ -5522,8 +5521,26 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
         <h3 className="font-bold mb-3" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Mes commandes</h3>
         <div className="rounded-2xl overflow-hidden mb-8" style={{ background: C.card, border: `1px solid ${C.border}` }}>
           {mesCommandes.length === 0 && <div className="p-5 text-sm" style={{ color: C.inkSoft }}>Aucune commande pour l'instant.</div>}
-          {mesCommandes.slice().reverse().map((cmd) => (
-            <div key={cmd.id} className="p-4" style={{ borderBottom: `1px solid ${C.border}` }}>
+          {(() => {
+            const groupes = {};
+            mesCommandes.forEach((cmd) => { groupes[cmd.date] = groupes[cmd.date] || []; groupes[cmd.date].push(cmd); });
+            const clesTriees = Object.keys(groupes).sort().reverse();
+            const clePlusRecente = clesTriees[0];
+            return clesTriees.map((dateCle) => {
+              const ouvert = ouvertsCommandesClient[dateCle] !== undefined ? ouvertsCommandesClient[dateCle] : dateCle === clePlusRecente;
+              const total = groupes[dateCle].reduce((s, c) => s + montantCommande(c), 0);
+              return (
+                <div key={dateCle} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <button onClick={() => setOuvertsCommandesClient((prev) => ({ ...prev, [dateCle]: !ouvert }))}
+                    className="w-full px-4 py-3 flex items-center justify-between gap-3" style={{ background: ouvert ? C.bg : "transparent" }}>
+                    <span className="text-xs font-bold flex items-center gap-1.5" style={{ color: C.ink }}>
+                      <ChevronRight size={13} style={{ transform: ouvert ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+                      {fmtDate(dateCle)}
+                    </span>
+                    <span className="mono text-[11px] font-semibold" style={{ color: C.ink }}>{fcfa(total)}</span>
+                  </button>
+                  {ouvert && groupes[dateCle].map((cmd) => (
+            <div key={cmd.id} className="p-4" style={{ borderTop: `1px solid ${C.border}` }}>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold" style={{ color: C.ink }}>{cmd.items.map((it) => `${it.qte}× ${nomProduit(it.produitId)}`).join(", ")}</div>
@@ -5605,6 +5622,10 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
               )}
             </div>
           ))}
+                </div>
+              );
+            });
+          })()}
         </div>
 
         {/* MON COMPTE — changement de mot de passe (client réel uniquement) */}
@@ -5661,25 +5682,47 @@ function ClientPortal({ clients, produits, commandes, documents, activeClientId,
           <>
             <h3 className="font-bold mb-3" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Mes reçus de paiement</h3>
             <div className="rounded-2xl overflow-hidden mb-8" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-              {mesRecus.slice().reverse().map((r) => (
-                <div key={r.id} className="p-4 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: C.greenSoft, color: C.greenDeep }}>Reçu</span>
-                      <span className="mono text-xs font-semibold" style={{ color: C.inkSoft }}>{r.numero}</span>
+              {(() => {
+                const groupes = {};
+                mesRecus.forEach((r) => { groupes[r.date] = groupes[r.date] || []; groupes[r.date].push(r); });
+                const clesTriees = Object.keys(groupes).sort().reverse();
+                const clePlusRecente = clesTriees[0];
+                return clesTriees.map((dateCle) => {
+                  const ouvert = ouvertsRecusClient[dateCle] !== undefined ? ouvertsRecusClient[dateCle] : dateCle === clePlusRecente;
+                  const total = groupes[dateCle].reduce((s, r) => s + r.montantRecu, 0);
+                  return (
+                    <div key={dateCle} style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <button onClick={() => setOuvertsRecusClient((prev) => ({ ...prev, [dateCle]: !ouvert }))}
+                        className="w-full px-4 py-3 flex items-center justify-between gap-3" style={{ background: ouvert ? C.bg : "transparent" }}>
+                        <span className="text-xs font-bold flex items-center gap-1.5" style={{ color: C.ink }}>
+                          <ChevronRight size={13} style={{ transform: ouvert ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+                          {fmtDate(dateCle)}
+                        </span>
+                        <span className="mono text-[11px] font-semibold" style={{ color: C.greenDeep }}>{fcfa(total)}</span>
+                      </button>
+                      {ouvert && groupes[dateCle].map((r) => (
+                        <div key={r.id} className="p-4 flex items-center justify-between gap-3" style={{ borderTop: `1px solid ${C.border}` }}>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: C.greenSoft, color: C.greenDeep }}>Reçu</span>
+                              <span className="mono text-xs font-semibold" style={{ color: C.inkSoft }}>{r.numero}</span>
+                            </div>
+                            <div className="text-xs mt-1" style={{ color: C.inkSoft }}>{fmtDate(r.date)} · {r.moyenPaiement}</div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="mono text-sm font-semibold" style={{ color: C.greenDeep }}>{fcfa(r.montantRecu)}</span>
+                            <button onClick={() => setRecuOuvert(r)}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold"
+                              style={{ background: C.greenSoft, color: C.greenDeep }}>
+                              <Eye size={13} /> Voir
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="text-xs mt-1" style={{ color: C.inkSoft }}>{fmtDate(r.date)} · {r.moyenPaiement}</div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="mono text-sm font-semibold" style={{ color: C.greenDeep }}>{fcfa(r.montantRecu)}</span>
-                    <button onClick={() => setRecuOuvert(r)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold"
-                      style={{ background: C.greenSoft, color: C.greenDeep }}>
-                      <Eye size={13} /> Voir
-                    </button>
-                  </div>
-                </div>
-              ))}
+                  );
+                });
+              })()}
             </div>
           </>
         )}
