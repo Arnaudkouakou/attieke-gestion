@@ -427,6 +427,20 @@ export default function App() {
   const [vuePersonnel, setVuePersonnel] = useState("cartes"); // "cartes" | "liste"
   const [granulPaies, setGranulPaies] = useState("jour"); // "jour" | "mois" | "annee"
   const [nbGroupesPaiesAffiches, setNbGroupesPaiesAffiches] = useState(14);
+  const [clientsCommandesOuverts, setClientsCommandesOuverts] = useState(() => new Set());
+  const togglerClientCommandes = (id) => setClientsCommandesOuverts((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const [groupesPaiesOuverts, setGroupesPaiesOuverts] = useState(() => new Set([
+    cleGroupe(todayISO(), "jour"), cleGroupe(todayISO(), "mois"), cleGroupe(todayISO(), "annee"),
+  ]));
+  const togglerGroupePaies = (cle) => setGroupesPaiesOuverts((prev) => {
+    const next = new Set(prev);
+    if (next.has(cle)) next.delete(cle); else next.add(cle);
+    return next;
+  });
   const [granulAchatsVentes, setGranulAchatsVentes] = useState("jour");
   const [granulDepenses, setGranulDepenses] = useState("jour");
   const [showFichePersonnel, setShowFichePersonnel] = useState(false);
@@ -480,13 +494,13 @@ export default function App() {
 
   useEffect(() => {
     let done = false;
-    const finish = (cl, pr, co, dc, pe, ma, ac, de, pt) => {
+    const finish = (cl, pr, co, dc, pe, ma, ac, de, pt, pa) => {
       if (done) return;
       done = true;
       const prAvecGamme = fusionnerGamme(pr, co);
       if (JSON.stringify(prAvecGamme.map((p) => p.id)) !== JSON.stringify(pr.map((p) => p.id))) saveKey("attieke:produits", prAvecGamme);
       setClients(cl); setProduits(prAvecGamme); setCommandes(co); setDocuments(dc);
-      setPersonnel(pe); setMateriel(ma); setAchats(ac); setDepenses(de); setPrets(pt);
+      setPersonnel(pe); setMateriel(ma); setAchats(ac); setDepenses(de); setPrets(pt); setPaies(pa);
       setActiveClientId(cl[0]?.id || null);
       setLoading(false);
     };
@@ -498,7 +512,7 @@ export default function App() {
 
     (async () => {
       try {
-        const [cl, pr, co, dc, pe, ma, ac, de, pt] = await Promise.all([
+        const [cl, pr, co, dc, pe, ma, ac, de, pt, pa] = await Promise.all([
           loadKey("attieke:clients", SEED_CLIENTS),
           loadKey("attieke:produits", SEED_PRODUITS),
           loadKey("attieke:commandes", SEED_COMMANDES),
@@ -508,8 +522,9 @@ export default function App() {
           loadKey("attieke:achats", []),
           loadKey("attieke:depenses", []),
           loadKey("attieke:prets", []),
+          loadKey("attieke:paies", []),
         ]);
-        finish(cl, pr, co, dc, pe, ma, ac, de, pt);
+        finish(cl, pr, co, dc, pe, ma, ac, de, pt, pa);
       } catch {
         if (!done) setErreurChargement(true);
       }
@@ -522,7 +537,6 @@ export default function App() {
   useEffect(() => {
     loadKey("attieke:signature", "").then((s) => setSignature(s || ""));
     loadKey("attieke:notifs", []).then((n) => setNotifs(Array.isArray(n) ? n : []));
-    loadKey("attieke:paies", []).then((p) => setPaies(Array.isArray(p) ? p : []));
     loadKey("attieke:pin", "1234").then((p) => setPin(p || "1234"));
     loadKey("attieke:recup", null).then((r) => setRecup(r && r.question ? r : null));
     loadKey("attieke:entreprise", null).then((e) => {
@@ -587,8 +601,8 @@ export default function App() {
   // Pour chaque journée écoulée (salaire journalier) ou mois écoulé (salaire mensuel) DEPUIS
   // L'ENREGISTREMENT DE L'EMPLOYÉ DANS L'APP (jamais avant, même si son embauche réelle est
   // plus ancienne — ces journées passées sont déjà réglées en dehors de cette plateforme),
-  // une ligne de paie est créée, marquée "non payé" par défaut — le gérant la bascule
-  // en "payé" seulement quand le versement a réellement eu lieu.
+  // une ligne de paie est créée, marquée "repos" par défaut (aucun impact financier tant que
+  // le gérant ne l'a pas explicitement basculée) — jamais "payé" ni "non payé" automatiquement.
   useEffect(() => {
     if (loading || personnel.length === 0) return;
     const aujourdHui = todayISO();
@@ -610,7 +624,7 @@ export default function App() {
           const periode = d.toISOString().slice(0, 10);
           const id = `${emp.id}:${periode}`;
           if (!existe.has(id)) {
-            nouvelles.push({ id, employeId: emp.id, type: "journalier", periode, montant: Number(emp.salaire) || 0, statut: "non payé" });
+            nouvelles.push({ id, employeId: emp.id, type: "journalier", periode, montant: Number(emp.salaire) || 0, statut: "repos" });
           }
           d.setDate(d.getDate() + 1);
         }
@@ -622,7 +636,7 @@ export default function App() {
           const periode = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
           const id = `${emp.id}:${periode}`;
           if (!existe.has(id)) {
-            nouvelles.push({ id, employeId: emp.id, type: "mensuel", periode, montant: Number(emp.salaire) || 0, statut: "non payé" });
+            nouvelles.push({ id, employeId: emp.id, type: "mensuel", periode, montant: Number(emp.salaire) || 0, statut: "repos" });
           }
           d.setMonth(d.getMonth() + 1);
         }
@@ -1381,13 +1395,16 @@ export default function App() {
                   })
                   .map(({ cl, cmds }) => {
                     const du = cmds.reduce((s, c) => s + montantReste(c), 0);
+                    const ouvert = clientsCommandesOuverts.has(cl.id);
                     return (
                       <div key={cl.id} className="rounded-2xl overflow-hidden mb-4" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                         {/* En-tête client */}
-                        <div className="p-4 flex items-center justify-between gap-3" style={{ background: C.bgAlt }}>
+                        <button onClick={() => togglerClientCommandes(cl.id)}
+                          className="w-full p-4 flex items-center justify-between gap-3" style={{ background: C.bgAlt }}>
                           <div className="flex items-center gap-3 min-w-0">
+                            <ChevronRight size={15} style={{ color: C.inkSoft, transform: ouvert ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }} />
                             <ClaieBadge size={36}><Users size={15} /></ClaieBadge>
-                            <div className="min-w-0">
+                            <div className="min-w-0 text-left">
                               <div className="font-bold text-sm truncate" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>{cl.nom}</div>
                               <div className="text-xs" style={{ color: C.inkSoft }}>{cmds.length} commande(s)</div>
                             </div>
@@ -1397,10 +1414,10 @@ export default function App() {
                               {du > 0 ? `Doit ${fcfa(du)}` : "À jour"}
                             </div>
                           </div>
-                        </div>
+                        </button>
 
                         {/* Commandes du client */}
-                        {cmds.slice().sort((a, b) => b.date.localeCompare(a.date)).map((cmd) => (
+                        {ouvert && cmds.slice().sort((a, b) => b.date.localeCompare(a.date)).map((cmd) => (
                           <div key={cmd.id} className="p-4" style={{ borderTop: `1px solid ${C.border}` }}>
                             <div className="flex items-center justify-between gap-3">
                               <div className="min-w-0">
@@ -1791,7 +1808,7 @@ export default function App() {
                   <>
                     <h3 className="font-bold mt-6 mb-3" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Journal des paies</h3>
                     <p className="text-xs mb-3" style={{ color: C.inkSoft }}>
-                      Chaque journée (ou mois) écoulée est enregistrée automatiquement, marquée "non payé" par défaut. Touche le statut pour le changer : <span style={{ color: C.chili, fontWeight: 600 }}>Non payé</span> → <span style={{ color: C.greenDeep, fontWeight: 600 }}>Payé</span> → <span style={{ fontWeight: 600 }}>Repos</span> (journée non travaillée, non comptée) seulement quand le versement a réellement eu lieu.
+                      Chaque journée (ou mois) écoulée est enregistrée automatiquement, marquée <span style={{ fontWeight: 600 }}>"Repos"</span> par défaut (aucun montant dû tant que tu n'as rien changé). Touche le statut pour le faire évoluer : <span style={{ fontWeight: 600 }}>Repos</span> → <span style={{ color: C.chili, fontWeight: 600 }}>Non payé</span> → <span style={{ color: C.greenDeep, fontWeight: 600 }}>Payé</span>. Ne bascule "Payé" que lorsque le versement a réellement eu lieu.
                     </p>
                     <div className="flex rounded-lg overflow-hidden mb-3 w-fit" style={{ border: `1px solid ${C.border}` }}>
                       {[["jour", "Par jour"], ["mois", "Par mois"], ["annee", "Par année"]].map(([v, label]) => (
@@ -1818,61 +1835,55 @@ export default function App() {
                               const entrees = groupes[cle];
                               const totalPaye = entrees.filter((p) => p.statut === "payé").reduce((s, p) => s + p.montant, 0);
                               const totalDu = entrees.filter((p) => p.statut === "non payé").reduce((s, p) => s + p.montant, 0);
-                              if (granulPaies === "jour") {
-                                return (
-                                  <div key={cle} style={{ borderBottom: `1px solid ${C.border}` }}>
-                                    <div className="px-3.5 pt-3 pb-1.5 flex items-center justify-between" style={{ background: C.bg }}>
-                                      <span className="text-xs font-bold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</span>
-                                      <span className="text-[11px]" style={{ color: C.inkSoft }}>
-                                        {totalPaye > 0 && <span style={{ color: C.greenDeep }}>{fcfa(totalPaye)} payé</span>}
-                                        {totalPaye > 0 && totalDu > 0 && " · "}
-                                        {totalDu > 0 && <span style={{ color: C.chili }}>{fcfa(totalDu)} dû</span>}
-                                      </span>
-                                    </div>
-                                    {entrees.map((pa) => {
-                                      const emp = personnel.find((e) => e.id === pa.employeId);
-                                      const statut = pa.statut;
-                                      const suivant = pa.type === "journalier"
-                                        ? (statut === "payé" ? "non payé" : statut === "non payé" ? "repos" : "payé")
-                                        : (statut === "payé" ? "non payé" : "payé");
-                                      const styles = {
-                                        "payé": { bg: C.greenSoft, fg: C.greenDeep, label: "Payé ✓" },
-                                        "non payé": { bg: C.chiliSoft, fg: C.chili, label: "Non payé" },
-                                        "repos": { bg: C.bgAlt, fg: C.inkSoft, label: "Repos" },
-                                      };
-                                      const s = styles[statut] || styles["payé"];
-                                      return (
-                                        <div key={pa.id} className="px-3.5 py-2.5 flex items-center justify-between gap-3" style={{ opacity: statut === "repos" ? 0.65 : 1 }}>
-                                          <div className="min-w-0">
-                                            <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{emp?.nom || "—"}</div>
-                                            <div className="text-xs" style={{ color: C.inkSoft }}>{pa.type === "journalier" ? "journée" : "mois"}</div>
-                                          </div>
-                                          <div className="flex items-center gap-2 shrink-0">
-                                            <span className="mono text-sm font-semibold" style={{ color: statut === "repos" ? C.inkSoft : C.ink, textDecoration: statut === "repos" ? "line-through" : "none" }}>{fcfa(pa.montant)}</span>
-                                            <button
-                                              onClick={() => updatePaies(paies.map((x) => x.id === pa.id ? { ...x, statut: suivant } : x))}
-                                              className="px-3 py-1.5 rounded-lg text-xs font-semibold w-24"
-                                              style={{ background: s.bg, color: s.fg }}>
-                                              {s.label}
-                                            </button>
+                              const ouvert = groupesPaiesOuverts.has(cle);
+                              return (
+                                <div key={cle} style={{ borderBottom: `1px solid ${C.border}` }}>
+                                  <button onClick={() => togglerGroupePaies(cle)}
+                                    className="w-full px-3.5 py-3 flex items-center justify-between gap-3" style={{ background: ouvert ? C.bg : "transparent" }}>
+                                    <span className="text-xs font-bold capitalize flex items-center gap-1.5" style={{ color: C.ink }}>
+                                      <ChevronRight size={13} style={{ transform: ouvert ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+                                      {libelleGroupe(cle)}
+                                    </span>
+                                    <span className="text-[11px]">
+                                      {totalPaye > 0 && <span style={{ color: C.greenDeep }}>{fcfa(totalPaye)} payé</span>}
+                                      {totalPaye > 0 && totalDu > 0 && " · "}
+                                      {totalDu > 0 && <span style={{ color: C.chili }}>{fcfa(totalDu)} dû</span>}
+                                      {totalPaye === 0 && totalDu === 0 && <span style={{ color: C.inkSoft }}>{entrees.length} entrée(s)</span>}
+                                    </span>
+                                  </button>
+                                  {ouvert && entrees.map((pa) => {
+                                    const emp = personnel.find((e) => e.id === pa.employeId);
+                                    const statut = pa.statut;
+                                    const suivant = pa.type === "journalier"
+                                      ? (statut === "repos" ? "non payé" : statut === "non payé" ? "payé" : "repos")
+                                      : (statut === "payé" ? "non payé" : "payé");
+                                    const styles = {
+                                      "payé": { bg: C.greenSoft, fg: C.greenDeep, label: "Payé ✓" },
+                                      "non payé": { bg: C.chiliSoft, fg: C.chili, label: "Non payé" },
+                                      "repos": { bg: C.bgAlt, fg: C.inkSoft, label: "Repos" },
+                                    };
+                                    const s = styles[statut] || styles["payé"];
+                                    return (
+                                      <div key={pa.id} className="px-3.5 py-2.5 flex items-center justify-between gap-3" style={{ opacity: statut === "repos" ? 0.65 : 1 }}>
+                                        <div className="min-w-0">
+                                          <div className="text-sm font-semibold truncate" style={{ color: C.ink }}>{emp?.nom || "—"}</div>
+                                          <div className="text-xs" style={{ color: C.inkSoft }}>
+                                            {pa.type === "journalier" ? "journée" : "mois"}
+                                            {granulPaies !== "jour" && ` · ${fmtDate(pa.periode.length === 7 ? pa.periode + "-01" : pa.periode)}`}
                                           </div>
                                         </div>
-                                      );
-                                    })}
-                                  </div>
-                                );
-                              }
-                              // Vue Mois / Année : résumé agrégé uniquement (pas de bascule individuelle ici)
-                              return (
-                                <div key={cle} className="px-3.5 py-3 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
-                                  <div>
-                                    <div className="text-sm font-semibold capitalize" style={{ color: C.ink }}>{libelleGroupe(cle)}</div>
-                                    <div className="text-xs" style={{ color: C.inkSoft }}>{entrees.length} entrée(s)</div>
-                                  </div>
-                                  <div className="text-right text-xs">
-                                    {totalPaye > 0 && <div style={{ color: C.greenDeep }} className="font-semibold mono">{fcfa(totalPaye)} payé</div>}
-                                    {totalDu > 0 && <div style={{ color: C.chili }} className="font-semibold mono">{fcfa(totalDu)} dû</div>}
-                                  </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <span className="mono text-sm font-semibold" style={{ color: statut === "repos" ? C.inkSoft : C.ink, textDecoration: statut === "repos" ? "line-through" : "none" }}>{fcfa(pa.montant)}</span>
+                                          <button
+                                            onClick={() => updatePaies(paies.map((x) => x.id === pa.id ? { ...x, statut: suivant } : x))}
+                                            className="px-3 py-1.5 rounded-lg text-xs font-semibold w-24"
+                                            style={{ background: s.bg, color: s.fg }}>
+                                            {s.label}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               );
                             })}
