@@ -478,8 +478,12 @@ export default function App() {
   const [rechercheVentes, setRechercheVentes] = useState("");
   const [rechercheDepenses, setRechercheDepenses] = useState("");
   const [livraisonCmd, setLivraisonCmd] = useState(null);
+  const [commandeEdit, setCommandeEdit] = useState(null);
   const [showDepenseModal, setShowDepenseModal] = useState(false);
   const [showRapport, setShowRapport] = useState(false);
+  const [showFicheComptable, setShowFicheComptable] = useState(false);
+  const [nbDernieresCommandesAffichees, setNbDernieresCommandesAffichees] = useState(5);
+  const [anneesDetailOuvertes, setAnneesDetailOuvertes] = useState(() => new Set([String(new Date().getFullYear())]));
   const [encaisserCmd, setEncaisserCmd] = useState(null); // commande en cours d'encaissement
   const [encaisserClient, setEncaisserClient] = useState(null); // client en cours d'encaissement global
   const [confirmation, setConfirmation] = useState(null); // {message, action} ou {message} pour simple info
@@ -1133,7 +1137,7 @@ export default function App() {
                 <div className="rounded-2xl p-5" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                   <h3 className="font-bold mb-4" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Dernières commandes</h3>
                   <div className="space-y-3">
-                    {commandes.slice().reverse().map((cmd) => (
+                    {commandes.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, nbDernieresCommandesAffichees).map((cmd) => (
                       <div key={cmd.id} className="flex items-center justify-between py-2" style={{ borderBottom: `1px solid ${C.border}` }}>
                         <div>
                           <div className="text-sm font-semibold" style={{ color: C.ink }}>{nomClient(cmd.clientId)}</div>
@@ -1146,6 +1150,12 @@ export default function App() {
                       </div>
                     ))}
                   </div>
+                  {commandes.length > nbDernieresCommandesAffichees && (
+                    <button onClick={() => setNbDernieresCommandesAffichees((n) => n + 5)}
+                      className="w-full mt-3 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                      Voir plus
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -1534,6 +1544,12 @@ export default function App() {
                                   </button>
                                 </>
                               )}
+                              <button
+                                onClick={() => setCommandeEdit(cmd)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                style={{ background: C.greenSoft, color: C.greenDeep }}>
+                                <UserCog size={12} /> Modifier
+                              </button>
                               <button
                                 onClick={() => setConfirmation({
                                   message: `Supprimer la commande de ${cl.nom} (${fcfa(montantCommande(cmd))}) ? Cette action est définitive.`,
@@ -2465,10 +2481,16 @@ export default function App() {
                 <div>
                   <div className="flex items-center justify-between mb-1 flex-wrap gap-3">
                     <h1 className="text-2xl font-bold" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Comptabilité</h1>
-                    <button onClick={() => setShowRapport(true)}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
-                      <Printer size={15} /> Rapport imprimable
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setShowFicheComptable(true)}
+                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                        <Printer size={15} /> Fiche comptable détaillée
+                      </button>
+                      <button onClick={() => setShowRapport(true)}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background: C.green }}>
+                        <Printer size={15} /> Rapport imprimable
+                      </button>
+                    </div>
                   </div>
                   <p className="text-sm mb-6" style={{ color: C.inkSoft }}>Bilan consolidé de toute l'activité</p>
 
@@ -2572,29 +2594,54 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Par mois */}
+                  {/* Par mois, regroupé par année */}
                   {moisTries.length > 0 && (
                     <div className="rounded-2xl p-5" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                       <h3 className="font-bold mb-4" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Détail par mois</h3>
-                      <div className="space-y-3">
-                        {moisTries.map((k) => {
-                          const m = mois[k];
-                          const solde = m.in - m.out;
+                      {(() => {
+                        const parAnnee = {};
+                        moisTries.forEach((k) => { const an = k.slice(0, 4); parAnnee[an] = parAnnee[an] || []; parAnnee[an].push(k); });
+                        const annees = Object.keys(parAnnee).sort().reverse();
+                        return annees.map((an) => {
+                          const ouvert = anneesDetailOuvertes.has(an);
+                          const totalAnnee = parAnnee[an].reduce((s, k) => s + (mois[k].in - mois[k].out), 0);
                           return (
-                            <div key={k} className="flex items-center justify-between py-2" style={{ borderBottom: `1px solid ${C.border}` }}>
-                              <div>
-                                <div className="text-sm font-semibold capitalize" style={{ color: C.ink }}>{nomMois(k)}</div>
-                                <div className="text-xs" style={{ color: C.inkSoft }}>
-                                  <span style={{ color: C.greenDeep }}>+ {fcfa(m.in)}</span> · <span style={{ color: C.chili }}>− {fcfa(m.out)}</span>
+                            <div key={an} className="mb-2">
+                              <button onClick={() => setAnneesDetailOuvertes((prev) => { const n = new Set(prev); if (n.has(an)) n.delete(an); else n.add(an); return n; })}
+                                className="w-full flex items-center justify-between py-2" style={{ borderBottom: `1px solid ${C.border}` }}>
+                                <span className="text-sm font-bold flex items-center gap-1.5" style={{ color: C.ink }}>
+                                  <ChevronRight size={13} style={{ transform: ouvert ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+                                  {an}
+                                </span>
+                                <span className="mono text-sm font-bold" style={{ color: totalAnnee >= 0 ? C.greenDeep : C.chili }}>
+                                  {totalAnnee >= 0 ? "+" : "−"} {fcfa(Math.abs(totalAnnee))}
+                                </span>
+                              </button>
+                              {ouvert && (
+                                <div className="space-y-3 mt-2 pl-2">
+                                  {parAnnee[an].map((k) => {
+                                    const m = mois[k];
+                                    const solde = m.in - m.out;
+                                    return (
+                                      <div key={k} className="flex items-center justify-between py-2" style={{ borderBottom: `1px solid ${C.border}` }}>
+                                        <div>
+                                          <div className="text-sm font-semibold capitalize" style={{ color: C.ink }}>{nomMois(k)}</div>
+                                          <div className="text-xs" style={{ color: C.inkSoft }}>
+                                            <span style={{ color: C.greenDeep }}>+ {fcfa(m.in)}</span> · <span style={{ color: C.chili }}>− {fcfa(m.out)}</span>
+                                          </div>
+                                        </div>
+                                        <span className="mono text-sm font-bold" style={{ color: solde >= 0 ? C.greenDeep : C.chili }}>
+                                          {solde >= 0 ? "+" : "−"} {fcfa(Math.abs(solde))}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
-                              </div>
-                              <span className="mono text-sm font-bold" style={{ color: solde >= 0 ? C.greenDeep : C.chili }}>
-                                {solde >= 0 ? "+" : "−"} {fcfa(Math.abs(solde))}
-                              </span>
+                              )}
                             </div>
                           );
-                        })}
-                      </div>
+                        });
+                      })()}
                     </div>
                   )}
                 </div>
@@ -2660,6 +2707,15 @@ export default function App() {
                 action: () => notifierClient(clients.find((cl) => cl.id === c.clientId)?.tel, `Bonjour, votre commande de ${fcfa(montantCommande(c))} a bien été enregistrée par HÉLÈNE Multiservices. Merci pour votre confiance !`),
               } : {}),
             });
+          }} />
+      )}
+      {commandeEdit && (
+        <AddCommandeModal clients={clients} produits={produits} initial={commandeEdit}
+          onClose={() => setCommandeEdit(null)}
+          onSave={(c) => {
+            updateCommandes(commandes.map((x) => x.id === c.id ? c : x));
+            setCommandeEdit(null);
+            afficherToast("Commande modifiée");
           }} />
       )}
       {showDocModal && (
@@ -2803,6 +2859,12 @@ export default function App() {
           montantPaye={montantPaye} montantReste={montantReste}
           prets={prets} montantRembourse={montantRembourse} resteDuPret={resteDuPret}
           onClose={() => setShowRapport(false)} />
+      )}
+      {showFicheComptable && (
+        <FicheComptableModal
+          commandes={commandes} achats={achats} depenses={depenses} paies={paies} personnel={personnel}
+          montantCommande={montantCommande} nomClient={nomClient} nomProduit={nomProduit}
+          onClose={() => setShowFicheComptable(false)} />
       )}
       {showFichePersonnel && (
         <FichePersonnelModal personnel={personnel} onClose={() => setShowFichePersonnel(false)} />
@@ -3050,20 +3112,22 @@ function LivraisonModal({ cmd, produits, nomProduit, onClose, onSave }) {
   );
 }
 
-function AddCommandeModal({ clients, produits, onClose, onSave }) {
-  const [clientId, setClientId] = useState(clients[0]?.id || "");
-  const [items, setItems] = useState([{ produitId: produits[0]?.id || "", qte: 1 }]);
-  const [montantDejaVerse, setMontantDejaVerse] = useState(""); // 0 ou vide = pas encore payé — statut calculé automatiquement
-  const [dejaLivree, setDejaLivree] = useState(false); // pour une commande passée déjà livrée
-  const [dateLivraisonPassee, setDateLivraisonPassee] = useState(todayISO());
-  const [moyen, setMoyen] = useState("Espèces");
-  const [dateCommande, setDateCommande] = useState(todayISO()); // modifiable : saisie d'une commande passée
-  const [jour, setJour] = useState(todayISO());
-  const [zoneId, setZoneId] = useState("bouafle");
-  const [emballage, setEmballage] = useState(false);
-  const [nbSacsManuel, setNbSacsManuel] = useState(null); // null = automatique
-  const [fraisTransportManuel, setFraisTransportManuel] = useState(null); // null = automatique
-  const [fraisEmballageManuel, setFraisEmballageManuel] = useState(null); // null = automatique
+function AddCommandeModal({ clients, produits, initial, onClose, onSave }) {
+  const zoneInitiale = initial?.zone ? (ZONES_LIVRAISON.find((z) => z.label === initial.zone)?.id || "bouafle") : "bouafle";
+  const dejaVerseInitial = initial ? (initial.paiements || []).reduce((s, p) => s + Number(p.montant || 0), 0) : 0;
+  const [clientId, setClientId] = useState(initial?.clientId || clients[0]?.id || "");
+  const [items, setItems] = useState(initial?.items?.length ? initial.items.map((it) => ({ ...it })) : [{ produitId: produits[0]?.id || "", qte: 1 }]);
+  const [montantDejaVerse, setMontantDejaVerse] = useState(dejaVerseInitial || ""); // 0 ou vide = pas encore payé — statut calculé automatiquement
+  const [dejaLivree, setDejaLivree] = useState(!!initial?.livree); // pour une commande passée déjà livrée
+  const [dateLivraisonPassee, setDateLivraisonPassee] = useState(initial?.dateLivraison || todayISO());
+  const [moyen, setMoyen] = useState(initial?.moyenPaiement || "Espèces");
+  const [dateCommande, setDateCommande] = useState(initial?.date || todayISO()); // modifiable : saisie d'une commande passée
+  const [jour, setJour] = useState(initial?.jourPaiement || todayISO());
+  const [zoneId, setZoneId] = useState(zoneInitiale);
+  const [emballage, setEmballage] = useState(Number(initial?.fraisEmballage || 0) > 0);
+  const [nbSacsManuel, setNbSacsManuel] = useState(initial?.nbSacs != null && initial.nbSacs > 0 ? initial.nbSacs : null); // null = automatique
+  const [fraisTransportManuel, setFraisTransportManuel] = useState(initial?.fraisTransport != null ? initial.fraisTransport : null); // null = automatique
+  const [fraisEmballageManuel, setFraisEmballageManuel] = useState(initial?.fraisEmballage != null ? initial.fraisEmballage : null); // null = automatique
 
   const addLigne = () => setItems([...items, { produitId: produits[0]?.id || "", qte: 1 }]);
   const updateLigne = (i, field, val) => setItems(items.map((it, idx) => idx === i ? { ...it, [field]: val } : it));
@@ -3082,7 +3146,7 @@ function AddCommandeModal({ clients, produits, onClose, onSave }) {
   }, 0);
 
   return (
-    <Modal title="Nouvelle commande" onClose={onClose}>
+    <Modal title={initial ? "Modifier la commande" : "Nouvelle commande"} onClose={onClose}>
       <Field label="Client">
         <select value={clientId} onChange={(e) => setClientId(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle}>
           {clients.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
@@ -3204,18 +3268,28 @@ function AddCommandeModal({ clients, produits, onClose, onSave }) {
           const total = sousTotal + fraisTransport + fraisEmballage;
           const verse = Math.min(Number(montantDejaVerse) || 0, total);
           const statutCalcule = verse >= total && total > 0 ? "payé" : verse > 0 ? "partiel" : "impayé";
+          // En édition, on conserve l'historique de paiement existant s'il correspond toujours au
+          // montant versé indiqué ; sinon on le remplace par une ligne unique corrigée.
+          let paiements;
+          if (verse > 0) {
+            paiements = (initial && dejaVerseInitial === verse)
+              ? initial.paiements
+              : [{ montant: verse, moyen, date: dateCommande }];
+          }
           onSave({
-            id: "o" + Date.now(), clientId, date: dateCommande, items, statut: statutCalcule,
+            ...(initial || {}),
+            id: initial?.id || "o" + Date.now(), clientId, date: dateCommande, items, statut: statutCalcule,
             moyenPaiement: moyen, jourPaiement: jour,
             zone: zone.tarif > 0 ? zone.label : null,
             nbSacs: (fraisTransport > 0 || fraisEmballage > 0) ? nbSacs : 0,
             fraisTransport, fraisEmballage,
-            ...(dejaLivree ? { livree: true, dateLivraison: dateLivraisonPassee } : {}),
-            ...(verse > 0 ? { paiements: [{ montant: verse, moyen, date: dateCommande }] } : {}),
+            livree: dejaLivree,
+            dateLivraison: dejaLivree ? dateLivraisonPassee : null,
+            paiements: paiements || [],
           });
         }}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
-        Enregistrer la commande
+        {initial ? "Enregistrer les modifications" : "Enregistrer la commande"}
       </button>
     </Modal>
   );
@@ -4386,6 +4460,150 @@ function FichePersonnelModal({ personnel, onClose }) {
                 {bloc("Employés actifs", actifs)}
                 {bloc("Anciens employés", anciens)}
               </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Fiche comptable détaillée : toutes les entrées/sorties par catégorie et par date,
+// plus le bénéfice/perte par mois et par année.
+function FicheComptableModal({ commandes, achats, depenses, paies, personnel, montantCommande, nomClient, nomProduit, onClose }) {
+  const salairesPayes = (paies || []).filter((p) => p.statut === "payé");
+
+  // Bénéfice/perte par mois et par année (ventes − (achats + dépenses + salaires payés))
+  const statsMois = {};
+  commandes.forEach((c) => {
+    const k = c.date.slice(0, 7);
+    statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
+    statsMois[k].ventes += montantCommande(c);
+  });
+  achats.forEach((a) => {
+    const k = a.date.slice(0, 7);
+    statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
+    statsMois[k].depenses += a.montant;
+  });
+  depenses.forEach((d) => {
+    const k = d.date.slice(0, 7);
+    statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
+    statsMois[k].depenses += d.montant;
+  });
+  salairesPayes.forEach((p) => {
+    const k = p.periode.slice(0, 7);
+    statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
+    statsMois[k].depenses += p.montant;
+  });
+  const moisTries = Object.keys(statsMois).sort().reverse();
+  const statsAnnee = {};
+  Object.keys(statsMois).forEach((k) => {
+    const an = k.slice(0, 4);
+    statsAnnee[an] = statsAnnee[an] || { ventes: 0, depenses: 0 };
+    statsAnnee[an].ventes += statsMois[k].ventes;
+    statsAnnee[an].depenses += statsMois[k].depenses;
+  });
+  const anneesTriees = Object.keys(statsAnnee).sort().reverse();
+
+  const grouperParDate = (liste, dateFn) => {
+    const g = {};
+    liste.forEach((x) => { const d = dateFn(x); g[d] = g[d] || []; g[d].push(x); });
+    return Object.keys(g).sort().reverse().map((d) => ({ date: d, items: g[d] }));
+  };
+
+  const sectionCategorie = (titre, liste, dateFn, ligneFn, couleur) => liste.length > 0 && (
+    <div className="mb-7">
+      <h4 className="text-xs font-bold uppercase tracking-widest mb-2 pb-1" style={{ color: couleur, borderBottom: `2px solid ${couleur}` }}>{titre}</h4>
+      {grouperParDate(liste, dateFn).map(({ date, items }) => (
+        <div key={date} className="mb-2">
+          <div className="text-[11px] font-bold mb-1" style={{ color: C.inkSoft }}>{fmtDate(date)}</div>
+          {items.map((it, i) => <div key={i}>{ligneFn(it)}</div>)}
+        </div>
+      ))}
+    </div>
+  );
+
+  const ligneMontant = (label, montant, couleur) => (
+    <div className="flex items-center justify-between text-xs py-1" style={{ borderBottom: `1px dotted ${C.border}` }}>
+      <span style={{ color: C.ink }}>{label}</span>
+      <span className="mono font-semibold shrink-0 ml-2" style={{ color: couleur }}>{fcfa(montant)}</span>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+      <div className="min-h-full flex items-start justify-center p-3 py-6">
+        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+            <span className="text-sm font-semibold text-white">Fiche comptable détaillée</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { try { window.print(); } catch {} }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.green, color: "#fff" }}>
+                <Printer size={13} /> Imprimer
+              </button>
+              <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)", color: "#fff" }}>
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+          <div className="p-6" style={{ color: C.ink }}>
+            <div className="mb-6 pb-4 text-center" style={{ borderBottom: `2px solid ${C.green}` }}>
+              <div className="text-lg font-bold" style={{ fontFamily: "'Fraunces', serif", color: C.greenDeep }}>{ENTREPRISE.nom}</div>
+              <div className="text-xs" style={{ color: C.inkSoft }}>{ENTREPRISE.adresse} · {ENTREPRISE.tel}{ENTREPRISE.email ? " · " + ENTREPRISE.email : ""}</div>
+              <div className="text-sm font-bold mt-3 uppercase tracking-widest" style={{ color: C.ink }}>Fiche comptable détaillée</div>
+              <div className="text-xs" style={{ color: C.inkSoft }}>Établie le {fmtDate(todayISO())}</div>
+            </div>
+
+            {/* Bénéfice / perte par mois */}
+            <div className="mb-7">
+              <h4 className="text-xs font-bold uppercase tracking-widest mb-2 pb-1" style={{ color: C.ink, borderBottom: `2px solid ${C.ink}` }}>Bénéfice / Perte par mois</h4>
+              {moisTries.length === 0 ? (
+                <p className="text-xs" style={{ color: C.inkSoft }}>Aucune donnée.</p>
+              ) : moisTries.map((k) => {
+                const s = statsMois[k];
+                const b = s.ventes - s.depenses;
+                return (
+                  <div key={k} className="flex items-center justify-between text-xs py-1.5 capitalize" style={{ borderBottom: `1px dotted ${C.border}` }}>
+                    <span style={{ color: C.ink }}>{new Date(k + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</span>
+                    <span className="mono font-semibold" style={{ color: b >= 0 ? C.greenDeep : C.chili }}>{b >= 0 ? "+" : ""}{fcfa(b)}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Bénéfice / perte par année */}
+            <div className="mb-7">
+              <h4 className="text-xs font-bold uppercase tracking-widest mb-2 pb-1" style={{ color: C.ink, borderBottom: `2px solid ${C.ink}` }}>Bénéfice / Perte par année</h4>
+              {anneesTriees.length === 0 ? (
+                <p className="text-xs" style={{ color: C.inkSoft }}>Aucune donnée.</p>
+              ) : anneesTriees.map((an) => {
+                const s = statsAnnee[an];
+                const b = s.ventes - s.depenses;
+                return (
+                  <div key={an} className="flex items-center justify-between text-xs py-1.5" style={{ borderBottom: `1px dotted ${C.border}` }}>
+                    <span style={{ color: C.ink }}>{an}</span>
+                    <span className="mono font-semibold" style={{ color: b >= 0 ? C.greenDeep : C.chili }}>{b >= 0 ? "+" : ""}{fcfa(b)}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Détail par catégorie et par date */}
+            {sectionCategorie("Ventes", commandes, (c) => c.date,
+              (c) => ligneMontant(`${nomClient(c.clientId)} — ${c.items.map((it) => `${it.qte}× ${nomProduit(it.produitId)}`).join(", ")}`, montantCommande(c), C.greenDeep),
+              C.greenDeep)}
+            {sectionCategorie("Achats", achats, (a) => a.date,
+              (a) => ligneMontant(`${a.designation}${a.fournisseur ? " — " + a.fournisseur : ""}`, a.montant, C.chili),
+              C.chili)}
+            {sectionCategorie("Dépenses & entretiens", depenses, (d) => d.date,
+              (d) => ligneMontant(`${d.designation} (${d.categorie})`, d.montant, C.chili),
+              C.chili)}
+            {sectionCategorie("Salaires versés", salairesPayes, (p) => p.periode.length === 7 ? p.periode + "-01" : p.periode,
+              (p) => ligneMontant(personnel.find((e) => e.id === p.employeId)?.nom || "—", p.montant, C.chili),
+              C.chili)}
+
+            {commandes.length === 0 && achats.length === 0 && depenses.length === 0 && salairesPayes.length === 0 && (
+              <p className="text-sm text-center py-6" style={{ color: C.inkSoft }}>Aucune donnée enregistrée pour l'instant.</p>
             )}
           </div>
         </div>
