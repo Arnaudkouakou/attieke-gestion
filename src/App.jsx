@@ -388,7 +388,13 @@ const NAV = [
    APP
 ========================================================= */
 export default function App() {
-  const [mode, setMode] = useState("gerant"); // "gerant" | "client"
+  const [mode, setMode] = useState(() => {
+    // Un client qui rafraîchit sa page doit rester dans son espace, pas basculer en vue gérant
+    try {
+      const s = JSON.parse(sessionStorage.getItem("attieke:session") || "null");
+      return s?.auth?.role === "client" ? "client" : "gerant";
+    } catch { return "gerant"; }
+  }); // "gerant" | "client"
   const [section, setSection] = useState("dashboard");
   const [loading, setLoading] = useState(true);
   const [erreurChargement, setErreurChargement] = useState(false);
@@ -399,7 +405,50 @@ export default function App() {
     return () => { onSaveError = null; };
   }, []);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [auth, setAuth] = useState(null); // null | {role:"gerant"} | {role:"client", clientId}
+  // La session est conservée au rafraîchissement de la page (sessionStorage), avec une
+  // déconnexion automatique après 5 minutes d'inactivité.
+  const DUREE_INACTIVITE_MS = 5 * 60 * 1000;
+  const [auth, setAuth] = useState(() => {
+    try {
+      const brut = sessionStorage.getItem("attieke:session");
+      if (!brut) return null;
+      const s = JSON.parse(brut);
+      if (!s || !s.auth || !s.derniereActivite) return null;
+      if (Date.now() - s.derniereActivite > DUREE_INACTIVITE_MS) {
+        sessionStorage.removeItem("attieke:session");
+        return null;
+      }
+      return s.auth;
+    } catch {
+      return null;
+    }
+  });
+
+  // Suivi d'activité : la session reste valide tant que l'utilisateur agit ; au-delà de
+  // 5 minutes sans aucune interaction, il est automatiquement déconnecté.
+  useEffect(() => {
+    if (!auth) return;
+    const enregistrerActivite = () => {
+      try { sessionStorage.setItem("attieke:session", JSON.stringify({ auth, derniereActivite: Date.now() })); } catch {}
+    };
+    enregistrerActivite();
+    const evenements = ["click", "keydown", "touchstart", "scroll"];
+    evenements.forEach((e) => window.addEventListener(e, enregistrerActivite, { passive: true }));
+    const verif = setInterval(() => {
+      try {
+        const brut = sessionStorage.getItem("attieke:session");
+        const s = brut ? JSON.parse(brut) : null;
+        if (!s || Date.now() - s.derniereActivite > DUREE_INACTIVITE_MS) {
+          sessionStorage.removeItem("attieke:session");
+          setAuth(null); setMenuOpen(false);
+        }
+      } catch {}
+    }, 30000);
+    return () => {
+      evenements.forEach((e) => window.removeEventListener(e, enregistrerActivite));
+      clearInterval(verif);
+    };
+  }, [auth]);
 
   const [clients, setClients] = useState([]);
   const [produits, setProduits] = useState([]);
@@ -517,7 +566,8 @@ export default function App() {
       if (JSON.stringify(prAvecGamme.map((p) => p.id)) !== JSON.stringify(pr.map((p) => p.id))) saveKey("attieke:produits", prAvecGamme);
       setClients(cl); setProduits(prAvecGamme); setCommandes(co); setDocuments(dc);
       setPersonnel(pe); setMateriel(ma); setAchats(ac); setDepenses(de); setPrets(pt); setPaies(pa);
-      setActiveClientId(cl[0]?.id || null);
+      // Après un rafraîchissement, un client connecté doit retrouver SON espace, pas celui du premier de la liste
+      setActiveClientId(auth?.role === "client" && auth.clientId ? auth.clientId : (cl[0]?.id || null));
       setLoading(false);
     };
 
@@ -860,7 +910,10 @@ export default function App() {
     );
   }
 
-  const logout = () => { setAuth(null); setMode("gerant"); setMenuOpen(false); };
+  const logout = () => {
+    try { sessionStorage.removeItem("attieke:session"); } catch {}
+    setAuth(null); setMode("gerant"); setMenuOpen(false);
+  };
 
   return (
     <div className="min-h-screen flex" style={{
@@ -2439,10 +2492,19 @@ export default function App() {
 
               // Comparatif Ventes / Dépenses / Bénéfices — par mois puis agrégé par année
               const statsMois = {};
+              // Ventes = argent RÉELLEMENT ENCAISSÉ (même base que le résultat et le détail par mois),
+              // pour ne jamais compter comme bénéfice une facture encore impayée.
               commandes.forEach((c) => {
-                const k = c.date.slice(0, 7);
-                statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
-                statsMois[k].ventes += montantCommande(c);
+                (c.paiements || []).forEach((p) => {
+                  const k = p.date.slice(0, 7);
+                  statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
+                  statsMois[k].ventes += Number(p.montant || 0);
+                });
+                if ((!c.paiements || c.paiements.length === 0) && c.statut === "payé") {
+                  const k = c.date.slice(0, 7);
+                  statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
+                  statsMois[k].ventes += montantCommande(c);
+                }
               });
               achats.forEach((a) => {
                 const k = a.date.slice(0, 7);
@@ -4473,12 +4535,29 @@ function FichePersonnelModal({ personnel, onClose }) {
 function FicheComptableModal({ commandes, achats, depenses, paies, personnel, montantCommande, nomClient, nomProduit, onClose }) {
   const salairesPayes = (paies || []).filter((p) => p.statut === "payé");
 
-  // Bénéfice/perte par mois et par année (ventes − (achats + dépenses + salaires payés))
+  // Encaissements réels sur les ventes (mêmes règles que le calcul du bénéfice)
+  const encaissements = [];
+  commandes.forEach((c) => {
+    (c.paiements || []).forEach((p) => encaissements.push({ date: p.date, montant: Number(p.montant || 0) }));
+    if ((!c.paiements || c.paiements.length === 0) && c.statut === "payé") {
+      encaissements.push({ date: c.date, montant: montantCommande(c) });
+    }
+  });
+
+  // Bénéfice/perte par mois et par année : encaissé réel − (achats + dépenses + salaires payés).
+  // On ne compte JAMAIS une facture impayée comme un bénéfice.
   const statsMois = {};
   commandes.forEach((c) => {
-    const k = c.date.slice(0, 7);
-    statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
-    statsMois[k].ventes += montantCommande(c);
+    (c.paiements || []).forEach((p) => {
+      const k = p.date.slice(0, 7);
+      statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
+      statsMois[k].ventes += Number(p.montant || 0);
+    });
+    if ((!c.paiements || c.paiements.length === 0) && c.statut === "payé") {
+      const k = c.date.slice(0, 7);
+      statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
+      statsMois[k].ventes += montantCommande(c);
+    }
   });
   achats.forEach((a) => {
     const k = a.date.slice(0, 7);
@@ -4505,30 +4584,37 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
   });
   const anneesTriees = Object.keys(statsAnnee).sort().reverse();
 
-  const grouperParDate = (liste, dateFn) => {
-    const g = {};
-    liste.forEach((x) => { const d = dateFn(x); g[d] = g[d] || []; g[d].push(x); });
-    return Object.keys(g).sort().reverse().map((d) => ({ date: d, items: g[d] }));
-  };
-
-  const sectionCategorie = (titre, liste, dateFn, ligneFn, couleur) => liste.length > 0 && (
-    <div className="mb-7">
-      <h4 className="text-xs font-bold uppercase tracking-widest mb-2 pb-1" style={{ color: couleur, borderBottom: `2px solid ${couleur}` }}>{titre}</h4>
-      {grouperParDate(liste, dateFn).map(({ date, items }) => (
-        <div key={date} className="mb-2">
-          <div className="text-[11px] font-bold mb-1" style={{ color: C.inkSoft }}>{fmtDate(date)}</div>
-          {items.map((it, i) => <div key={i}>{ligneFn(it)}</div>)}
+  // Chaque section n'affiche que les totaux par mois (pas le détail ligne par ligne, qui
+  // deviendrait interminable avec le temps), plus le total général de la section.
+  const sectionTotauxMensuels = (titre, liste, dateFn, montantFn, couleur, motUnite = "opération") => {
+    if (!liste || liste.length === 0) return null;
+    const parMois = {};
+    liste.forEach((x) => {
+      const k = dateFn(x).slice(0, 7);
+      parMois[k] = parMois[k] || { total: 0, nb: 0 };
+      parMois[k].total += montantFn(x);
+      parMois[k].nb += 1;
+    });
+    const totalGeneral = Object.values(parMois).reduce((s, m) => s + m.total, 0);
+    return (
+      <div className="mb-7">
+        <h4 className="text-xs font-bold uppercase tracking-widest mb-2 pb-1" style={{ color: couleur, borderBottom: `2px solid ${couleur}` }}>{titre}</h4>
+        {Object.keys(parMois).sort().reverse().map((k) => (
+          <div key={k} className="flex items-center justify-between text-xs py-1.5 capitalize" style={{ borderBottom: `1px dotted ${C.border}` }}>
+            <span style={{ color: C.ink }}>
+              {new Date(k + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}
+              <span className="ml-1" style={{ color: C.inkSoft }}>({parMois[k].nb} {motUnite}{parMois[k].nb > 1 ? "s" : ""})</span>
+            </span>
+            <span className="mono font-semibold shrink-0 ml-2" style={{ color: couleur }}>{fcfa(parMois[k].total)}</span>
+          </div>
+        ))}
+        <div className="flex items-center justify-between text-xs py-2 mt-1 font-bold" style={{ borderTop: `2px solid ${couleur}` }}>
+          <span style={{ color: C.ink }}>TOTAL GÉNÉRAL</span>
+          <span className="mono shrink-0 ml-2" style={{ color: couleur }}>{fcfa(totalGeneral)}</span>
         </div>
-      ))}
-    </div>
-  );
-
-  const ligneMontant = (label, montant, couleur) => (
-    <div className="flex items-center justify-between text-xs py-1" style={{ borderBottom: `1px dotted ${C.border}` }}>
-      <span style={{ color: C.ink }}>{label}</span>
-      <span className="mono font-semibold shrink-0 ml-2" style={{ color: couleur }}>{fcfa(montant)}</span>
-    </div>
-  );
+      </div>
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
@@ -4588,19 +4674,11 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
               })}
             </div>
 
-            {/* Détail par catégorie et par date */}
-            {sectionCategorie("Ventes", commandes, (c) => c.date,
-              (c) => ligneMontant(`${nomClient(c.clientId)} — ${c.items.map((it) => `${it.qte}× ${nomProduit(it.produitId)}`).join(", ")}`, montantCommande(c), C.greenDeep),
-              C.greenDeep)}
-            {sectionCategorie("Achats", achats, (a) => a.date,
-              (a) => ligneMontant(`${a.designation}${a.fournisseur ? " — " + a.fournisseur : ""}`, a.montant, C.chili),
-              C.chili)}
-            {sectionCategorie("Dépenses & entretiens", depenses, (d) => d.date,
-              (d) => ligneMontant(`${d.designation} (${d.categorie})`, d.montant, C.chili),
-              C.chili)}
-            {sectionCategorie("Salaires versés", salairesPayes, (p) => p.periode.length === 7 ? p.periode + "-01" : p.periode,
-              (p) => ligneMontant(personnel.find((e) => e.id === p.employeId)?.nom || "—", p.montant, C.chili),
-              C.chili)}
+            {/* Totaux par mois et total général, par catégorie */}
+            {sectionTotauxMensuels("Ventes (encaissé)", encaissements, (e) => e.date, (e) => e.montant, C.greenDeep, "encaissement")}
+            {sectionTotauxMensuels("Achats", achats, (a) => a.date, (a) => a.montant, C.chili, "achat")}
+            {sectionTotauxMensuels("Dépenses & entretiens", depenses, (d) => d.date, (d) => d.montant, C.chili, "dépense")}
+            {sectionTotauxMensuels("Salaires versés", salairesPayes, (p) => p.periode, (p) => p.montant, C.chili, "versement")}
 
             {commandes.length === 0 && achats.length === 0 && depenses.length === 0 && salairesPayes.length === 0 && (
               <p className="text-sm text-center py-6" style={{ color: C.inkSoft }}>Aucune donnée enregistrée pour l'instant.</p>
