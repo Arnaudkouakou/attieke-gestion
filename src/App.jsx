@@ -3875,6 +3875,7 @@ function EditAchatModal({ achat, onClose, onSave, onDelete }) {
 
 function AddDepenseModal({ onClose, onSave }) {
   const [designation, setDesignation] = useState(""); const [categorie, setCategorie] = useState("Entretien matériel");
+  const [autreCategorie, setAutreCategorie] = useState("");
   const [montant, setMontant] = useState(""); const [date, setDate] = useState(todayISO());
   const [photo, setPhoto] = useState("");
   const chargerPhoto = (e) => {
@@ -3904,6 +3905,13 @@ function AddDepenseModal({ onClose, onSave }) {
           <option>Entretien matériel</option><option>Eau / Électricité</option><option>Transport</option><option>Autre</option>
         </select>
       </Field>
+      {categorie === "Autre" && (
+        <Field label="Précisez la catégorie">
+          <input value={autreCategorie} onChange={(e) => setAutreCategorie(e.target.value)}
+            placeholder="ex : Main d'œuvre, Loyer, Taxes…"
+            className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+        </Field>
+      )}
       <Field label="Montant (FCFA)"><input type="number" value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Photo du justificatif (optionnel)">
@@ -3922,7 +3930,8 @@ function AddDepenseModal({ onClose, onSave }) {
           {photo && <button onClick={() => setPhoto("")} className="text-[11px] mt-1" style={{ color: C.chili }}>Retirer la photo</button>}
         </div>
       </Field>
-      <button disabled={!designation || !montant} onClick={() => onSave({ id: "x" + Date.now(), designation, categorie, montant: Number(montant), date, photo })}
+      <button disabled={!designation || !montant || (categorie === "Autre" && !autreCategorie.trim())}
+        onClick={() => onSave({ id: "x" + Date.now(), designation, categorie: categorie === "Autre" && autreCategorie.trim() ? autreCategorie.trim() : categorie, montant: Number(montant), date, photo })}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
         Enregistrer
       </button>
@@ -3932,8 +3941,12 @@ function AddDepenseModal({ onClose, onSave }) {
 
 // Modifier ou supprimer une dépense existante
 function EditDepenseModal({ depense, onClose, onSave, onDelete }) {
+  const CATEGORIES_STANDARD = ["Entretien matériel", "Eau / Électricité", "Transport"];
+  const categorieExistante = depense.categorie || "Entretien matériel";
+  const estPersonnalisee = !CATEGORIES_STANDARD.includes(categorieExistante);
   const [designation, setDesignation] = useState(depense.designation || "");
-  const [categorie, setCategorie] = useState(depense.categorie || "Entretien matériel");
+  const [categorie, setCategorie] = useState(estPersonnalisee ? "Autre" : categorieExistante);
+  const [autreCategorie, setAutreCategorie] = useState(estPersonnalisee ? categorieExistante : "");
   const [montant, setMontant] = useState(depense.montant ?? "");
   const [date, setDate] = useState(depense.date || todayISO());
   const [photo, setPhoto] = useState(depense.photo || "");
@@ -3964,6 +3977,13 @@ function EditDepenseModal({ depense, onClose, onSave, onDelete }) {
           <option>Entretien matériel</option><option>Eau / Électricité</option><option>Transport</option><option>Autre</option>
         </select>
       </Field>
+      {categorie === "Autre" && (
+        <Field label="Précisez la catégorie">
+          <input value={autreCategorie} onChange={(e) => setAutreCategorie(e.target.value)}
+            placeholder="ex : Main d'œuvre, Loyer, Taxes…"
+            className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+        </Field>
+      )}
       <Field label="Montant (FCFA)"><input type="number" value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Photo du justificatif (optionnel)">
@@ -3982,8 +4002,8 @@ function EditDepenseModal({ depense, onClose, onSave, onDelete }) {
           {photo && <button onClick={() => setPhoto("")} className="text-[11px] mt-1" style={{ color: C.chili }}>Retirer la photo</button>}
         </div>
       </Field>
-      <button disabled={!designation || !montant}
-        onClick={() => onSave({ ...depense, designation, categorie, montant: Number(montant), date, photo })}
+      <button disabled={!designation || !montant || (categorie === "Autre" && !autreCategorie.trim())}
+        onClick={() => onSave({ ...depense, designation, categorie: categorie === "Autre" && autreCategorie.trim() ? autreCategorie.trim() : categorie, montant: Number(montant), date, photo })}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
         Enregistrer les modifications
       </button>
@@ -4575,6 +4595,25 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
     statsMois[k].depenses += p.montant;
   });
   const moisTries = Object.keys(statsMois).sort().reverse();
+
+  // Créances : ce qui est facturé mais pas encore encaissé (par client, pour le détail)
+  const creancesParClient = {};
+  commandes.forEach((c) => {
+    const total = montantCommande(c);
+    const paye = (c.paiements || []).length > 0
+      ? (c.paiements || []).reduce((s, p) => s + Number(p.montant || 0), 0)
+      : (c.statut === "payé" ? total : 0);
+    const reste = Math.max(0, total - paye);
+    if (reste > 0) creancesParClient[c.clientId] = (creancesParClient[c.clientId] || 0) + reste;
+  });
+  const totalCreances = Object.values(creancesParClient).reduce((s, v) => s + v, 0);
+
+  // Résultat encaissé (trésorerie réelle) et résultat projeté (si tout était encaissé)
+  const totalEncaisse = Object.values(statsMois).reduce((s, m) => s + m.ventes, 0);
+  const totalSorties = Object.values(statsMois).reduce((s, m) => s + m.depenses, 0);
+  const resultatEncaisse = totalEncaisse - totalSorties;
+  const resultatProjete = resultatEncaisse + totalCreances;
+
   const statsAnnee = {};
   Object.keys(statsMois).forEach((k) => {
     const an = k.slice(0, 4);
@@ -4640,9 +4679,46 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
               <div className="text-xs" style={{ color: C.inkSoft }}>Établie le {fmtDate(todayISO())}</div>
             </div>
 
+            {/* SYNTHÈSE — situation réelle vs situation si tout était encaissé */}
+            <div className="mb-7 rounded-lg p-4" style={{ background: C.bg, border: `1px solid ${C.border}` }}>
+              <h4 className="text-xs font-bold uppercase tracking-widest mb-3 pb-1" style={{ color: C.ink, borderBottom: `2px solid ${C.ink}` }}>Synthèse générale</h4>
+
+              <div className="text-[11px] font-bold uppercase tracking-wide mb-1.5" style={{ color: C.greenDeep }}>1 · Situation réelle (argent effectivement reçu)</div>
+              <div className="flex items-center justify-between text-xs py-1" style={{ borderBottom: `1px dotted ${C.border}` }}>
+                <span style={{ color: C.ink }}>Total encaissé</span>
+                <span className="mono font-semibold" style={{ color: C.greenDeep }}>{fcfa(totalEncaisse)}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs py-1" style={{ borderBottom: `1px dotted ${C.border}` }}>
+                <span style={{ color: C.ink }}>Total sorties (achats + dépenses + salaires)</span>
+                <span className="mono font-semibold" style={{ color: C.chili }}>− {fcfa(totalSorties)}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs py-2 font-bold" style={{ borderBottom: `2px solid ${C.border}` }}>
+                <span style={{ color: C.ink }}>{resultatEncaisse >= 0 ? "BÉNÉFICE RÉEL" : "PERTE RÉELLE"}</span>
+                <span className="mono" style={{ color: resultatEncaisse >= 0 ? C.greenDeep : C.chili }}>{resultatEncaisse >= 0 ? "+" : "−"} {fcfa(Math.abs(resultatEncaisse))}</span>
+              </div>
+
+              <div className="text-[11px] font-bold uppercase tracking-wide mt-4 mb-1.5" style={{ color: C.gold }}>2 · Argent dû par les clients (pas encore reçu)</div>
+              <div className="flex items-center justify-between text-xs py-1" style={{ borderBottom: `1px dotted ${C.border}` }}>
+                <span style={{ color: C.ink }}>Créances à recouvrer</span>
+                <span className="mono font-semibold" style={{ color: C.gold }}>{fcfa(totalCreances)}</span>
+              </div>
+              <p className="text-[10px] mt-1 mb-2" style={{ color: C.inkSoft }}>
+                Ce montant n'entre PAS dans le bénéfice réel ci-dessus : il correspond à des marchandises livrées mais non encore payées.
+              </p>
+
+              <div className="text-[11px] font-bold uppercase tracking-wide mt-4 mb-1.5" style={{ color: C.inkSoft }}>3 · Situation projetée (si tout était encaissé)</div>
+              <div className="flex items-center justify-between text-xs py-2 font-bold" style={{ borderTop: `2px solid ${C.border}` }}>
+                <span style={{ color: C.ink }}>{resultatProjete >= 0 ? "BÉNÉFICE PROJETÉ" : "PERTE PROJETÉE"}</span>
+                <span className="mono" style={{ color: resultatProjete >= 0 ? C.greenDeep : C.chili }}>{resultatProjete >= 0 ? "+" : "−"} {fcfa(Math.abs(resultatProjete))}</span>
+              </div>
+              <p className="text-[10px] mt-1" style={{ color: C.inkSoft }}>
+                Hypothèse : bénéfice réel ({fcfa(resultatEncaisse)}) + créances recouvrées ({fcfa(totalCreances)}). Chiffre indicatif tant que les clients n'ont pas payé.
+              </p>
+            </div>
+
             {/* Bénéfice / perte par mois */}
             <div className="mb-7">
-              <h4 className="text-xs font-bold uppercase tracking-widest mb-2 pb-1" style={{ color: C.ink, borderBottom: `2px solid ${C.ink}` }}>Bénéfice / Perte par mois</h4>
+              <h4 className="text-xs font-bold uppercase tracking-widest mb-2 pb-1" style={{ color: C.ink, borderBottom: `2px solid ${C.ink}` }}>Bénéfice / Perte par mois <span style={{ color: C.inkSoft, fontWeight: 400, textTransform: "none" }}>(sur encaissé)</span></h4>
               {moisTries.length === 0 ? (
                 <p className="text-xs" style={{ color: C.inkSoft }}>Aucune donnée.</p>
               ) : moisTries.map((k) => {
@@ -4679,6 +4755,24 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
             {sectionTotauxMensuels("Achats", achats, (a) => a.date, (a) => a.montant, C.chili, "achat")}
             {sectionTotauxMensuels("Dépenses & entretiens", depenses, (d) => d.date, (d) => d.montant, C.chili, "dépense")}
             {sectionTotauxMensuels("Salaires versés", salairesPayes, (p) => p.periode, (p) => p.montant, C.chili, "versement")}
+
+            {totalCreances > 0 && (
+              <div className="mb-7">
+                <h4 className="text-xs font-bold uppercase tracking-widest mb-2 pb-1" style={{ color: C.gold, borderBottom: `2px solid ${C.gold}` }}>Créances par client (à recouvrer)</h4>
+                {Object.keys(creancesParClient)
+                  .sort((a, b) => creancesParClient[b] - creancesParClient[a])
+                  .map((cid) => (
+                    <div key={cid} className="flex items-center justify-between text-xs py-1.5" style={{ borderBottom: `1px dotted ${C.border}` }}>
+                      <span style={{ color: C.ink }}>{nomClient(cid)}</span>
+                      <span className="mono font-semibold shrink-0 ml-2" style={{ color: C.gold }}>{fcfa(creancesParClient[cid])}</span>
+                    </div>
+                  ))}
+                <div className="flex items-center justify-between text-xs py-2 mt-1 font-bold" style={{ borderTop: `2px solid ${C.gold}` }}>
+                  <span style={{ color: C.ink }}>TOTAL GÉNÉRAL</span>
+                  <span className="mono shrink-0 ml-2" style={{ color: C.gold }}>{fcfa(totalCreances)}</span>
+                </div>
+              </div>
+            )}
 
             {commandes.length === 0 && achats.length === 0 && depenses.length === 0 && salairesPayes.length === 0 && (
               <p className="text-sm text-center py-6" style={{ color: C.inkSoft }}>Aucune donnée enregistrée pour l'instant.</p>
