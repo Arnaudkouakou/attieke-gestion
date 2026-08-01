@@ -1000,16 +1000,9 @@ export default function App() {
             border-radius: 0 !important;
             box-shadow: none !important;
             background: #fff !important;
-            /* La zone de contenu occupe toute la hauteur de page : permet de pousser
-               la signature tout en bas de la DERNIÈRE page, même si elle est peu remplie. */
-            display: flex !important;
-            flex-direction: column !important;
-            min-height: calc(100vh - 24mm) !important;
           }
-          .fiche-imprimable > *:not(.no-print) { flex: 0 0 auto; }
-          /* Le conteneur de contenu s'étire, la signature est repoussée en bas */
-          .fiche-imprimable > div:last-child { display: flex !important; flex-direction: column !important; flex: 1 1 auto !important; }
-          .bloc-signature { margin-top: auto !important; }
+          /* La signature suit le contenu et n'est jamais coupée entre deux pages */
+          .bloc-signature { break-inside: avoid !important; page-break-inside: avoid !important; }
 
           /* Barre d'action (Imprimer / Fermer) : jamais sur le papier */
           .no-print, .no-print * { display: none !important; }
@@ -3701,15 +3694,15 @@ function DocPreviewModal({ doc, client, signature, onClose }) {
             )}
           </div>
 
-          {/* Signature */}
-          <BlocSignature signature={signature} />
-
           {/* Pied */}
           <div className="text-xs pt-3" style={{ borderTop: `1px solid ${C.border}`, color: C.inkSoft }}>
             {doc.type === "devis" && "Ce devis est valable 15 jours à compter de sa date d'émission."}
             {doc.type === "facture" && `Paiement par ${doc.moyenPaiement}. Merci pour votre confiance.`}
             {doc.type === "recu" && `Paiement reçu par ${doc.moyenPaiement}. ${ENTREPRISE.nom} vous remercie.`}
           </div>
+
+          {/* Signature */}
+          <BlocSignature signature={signature} />
         </div>
         </div>
       </div>
@@ -5041,11 +5034,11 @@ function RapportModal({ commandes, achats, depenses, personnel, paies = [], clie
             </div>
           )}
 
-          <BlocSignature signature={signature} />
-
           <div className="text-[11px] pt-3 text-center" style={{ borderTop: `1px solid ${C.border}`, color: C.inkSoft }}>
             Document généré automatiquement par la plateforme de gestion {ENTREPRISE.nom}.
           </div>
+
+          <BlocSignature signature={signature} />
         </div>
         </div>
       </div>
@@ -5157,11 +5150,11 @@ function ReleveModal({ client, commandes, montantCommande, montantPaye, montantR
               </div>
             </div>
 
-            <BlocSignature signature={signature} />
-
             <div className="text-[11px] pt-4 text-center" style={{ color: C.inkSoft }}>
               Document généré automatiquement par la plateforme de gestion {ENTREPRISE.nom}.
             </div>
+
+            <BlocSignature signature={signature} />
           </div>
         </div>
       </div>
