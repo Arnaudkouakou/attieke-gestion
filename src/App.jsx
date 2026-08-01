@@ -951,25 +951,43 @@ export default function App() {
         .mono { font-family: 'IBM Plex Mono', monospace; }
 
         @media print {
-          /* N'imprimer QUE la fiche ouverte, pas l'application derrière (évite les doublons) */
-          body * { visibility: hidden !important; }
-          .fiche-imprimable, .fiche-imprimable * { visibility: visible !important; }
-          .fiche-imprimable {
-            position: absolute !important;
-            inset: 0 !important;
-            background: #fff !important;
+          html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
+
+          /* Tout masquer SAUF la fiche ouverte et la chaîne d'éléments qui la contient.
+             On utilise display:none (et non visibility) pour ne laisser aucune page blanche. */
+          body *:not(:has(.fiche-imprimable)):not(.fiche-imprimable):not(.fiche-imprimable *) {
+            display: none !important;
+          }
+
+          /* Les conteneurs parents de la fiche : retirer tout positionnement fixe/absolu,
+             sinon le contenu se répète sur chaque page imprimée. */
+          body *:has(.fiche-imprimable) {
+            display: block !important;
+            position: static !important;
+            overflow: visible !important;
+            background: none !important;
             padding: 0 !important;
             margin: 0 !important;
-            overflow: visible !important;
-            display: block !important;
+            min-height: 0 !important;
             height: auto !important;
             max-width: none !important;
+            width: auto !important;
+          }
+
+          .fiche-imprimable {
+            position: static !important;
             width: 100% !important;
+            max-width: none !important;
+            height: auto !important;
+            overflow: visible !important;
             border-radius: 0 !important;
             box-shadow: none !important;
+            background: #fff !important;
           }
-          /* Masquer la barre d'action (boutons Imprimer / Fermer) */
-          .no-print, .no-print * { display: none !important; visibility: hidden !important; }
+
+          /* Barre d'action (Imprimer / Fermer) : jamais sur le papier */
+          .no-print, .no-print * { display: none !important; }
+
           /* Ne jamais couper une ligne de montant ou un bloc entre deux pages */
           .fiche-imprimable .eviter-coupure,
           .fiche-imprimable h4,
@@ -1189,7 +1207,7 @@ export default function App() {
                         .sort((a, b) => b.ca - a.ca)
                         .slice(0, 3)
                         .map((x, i) => (
-                          <div key={x.cl.id} className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px dashed ${C.border}` }}>
+                          <div key={x.cl.id} className="eviter-coupure flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px dashed ${C.border}` }}>
                             <span style={{ color: C.ink }}>{["🥇", "🥈", "🥉"][i]} {x.cl.nom}</span>
                             <span className="mono font-semibold" style={{ color: C.greenDeep }}>{fcfa(x.ca)}</span>
                           </div>
@@ -1206,7 +1224,7 @@ export default function App() {
                           .sort((a, b) => b[1] - a[1])
                           .slice(0, 3)
                           .map(([pid, qte], i) => (
-                            <div key={pid} className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px dashed ${C.border}` }}>
+                            <div key={pid} className="eviter-coupure flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px dashed ${C.border}` }}>
                               <span style={{ color: C.ink }}>{["🥇", "🥈", "🥉"][i]} {nomProduit(pid)}</span>
                               <span className="mono font-semibold" style={{ color: C.greenDeep }}>× {qte}</span>
                             </div>
@@ -2655,7 +2673,7 @@ export default function App() {
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between"><span style={{ color: C.inkSoft }}>Total emprunté</span><span className="mono" style={{ color: C.ink }}>{fcfa(prets.reduce((s, p) => s + Number(p.montant || 0), 0))}</span></div>
                         <div className="flex justify-between"><span style={{ color: C.inkSoft }}>Total remboursé</span><span className="mono" style={{ color: C.greenDeep }}>{fcfa(prets.reduce((s, p) => s + montantRembourse(p), 0))}</span></div>
-                        <div className="flex justify-between pt-2 font-bold" style={{ borderTop: `1px solid ${C.border}` }}>
+                        <div className="eviter-coupure flex justify-between pt-2 font-bold" style={{ borderTop: `1px solid ${C.border}` }}>
                           <span style={{ color: C.ink }}>Reste dû (dette en cours)</span>
                           <span className="mono" style={{ color: C.chili }}>{fcfa(prets.reduce((s, p) => s + resteDuPret(p), 0))}</span>
                         </div>
@@ -2685,7 +2703,7 @@ export default function App() {
                         {salairesDus > 0 && (
                           <div className="flex justify-between text-xs"><span style={{ color: C.chili }}>Salaires non versés (dus)</span><span className="mono" style={{ color: C.chili }}>{fcfa(salairesDus)}</span></div>
                         )}
-                        <div className="flex justify-between pt-2 font-bold" style={{ borderTop: `1px solid ${C.border}` }}>
+                        <div className="eviter-coupure flex justify-between pt-2 font-bold" style={{ borderTop: `1px solid ${C.border}` }}>
                           <span style={{ color: C.ink }}>Total sorties</span><span className="mono" style={{ color: C.chili }}>{fcfa(sorties)}</span>
                         </div>
                       </div>
@@ -3566,7 +3584,7 @@ function DocPreviewModal({ doc, client, signature, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+    <div className="overlay-impression fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
         <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
         {/* Barre d'actions */}
@@ -3635,17 +3653,17 @@ function DocPreviewModal({ doc, client, signature, onClose }) {
 
           {/* Totaux */}
           <div className="flex flex-col items-end gap-1 mb-6">
-            <div className="flex justify-between w-56 text-sm font-bold py-2 px-3 rounded-lg" style={{ background: C.greenSoft, color: C.greenDeep }}>
+            <div className="eviter-coupure flex justify-between w-56 text-sm font-bold py-2 px-3 rounded-lg" style={{ background: C.greenSoft, color: C.greenDeep }}>
               <span>TOTAL</span><span className="mono">{fcfa(doc.total)}</span>
             </div>
             {doc.type === "recu" && (
               <>
-                <div className="flex justify-between w-56 text-sm py-1 px-3">
+                <div className="eviter-coupure flex justify-between w-56 text-sm py-1 px-3">
                   <span style={{ color: C.inkSoft }}>Montant reçu</span>
                   <span className="mono font-semibold" style={{ color: C.greenDeep }}>{fcfa(doc.montantRecu)}</span>
                 </div>
                 {reste > 0 && (
-                  <div className="flex justify-between w-56 text-sm py-1 px-3">
+                  <div className="eviter-coupure flex justify-between w-56 text-sm py-1 px-3">
                     <span style={{ color: C.inkSoft }}>Reste à payer</span>
                     <span className="mono font-semibold" style={{ color: C.chili }}>{fcfa(reste)}</span>
                   </div>
@@ -4237,7 +4255,7 @@ function FichePretsModal({ prets, montantRembourse, resteDuPret, onClose }) {
     </div>
   );
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+    <div className="overlay-impression fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
         <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
           <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
@@ -4437,7 +4455,7 @@ function FicheClientsModal({ clients, commandes, montantReste, onClose }) {
     </div>
   );
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+    <div className="overlay-impression fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
         <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
           <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
@@ -4497,7 +4515,7 @@ function FicheMaterielModal({ materiel, onClose }) {
     </div>
   );
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+    <div className="overlay-impression fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
         <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
           <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
@@ -4538,7 +4556,7 @@ function FicheMaterielModal({ materiel, onClose }) {
 function FicheCommandesModal({ commandes, nomClient, nomProduit, montantCommande, montantReste, onClose }) {
   const triees = commandes.slice().sort((a, b) => b.date.localeCompare(a.date));
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+    <div className="overlay-impression fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
         <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
           <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
@@ -4611,7 +4629,7 @@ function FichePersonnelModal({ personnel, onClose }) {
     </div>
   );
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+    <div className="overlay-impression fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
         <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
           <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
@@ -4754,7 +4772,7 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+    <div className="overlay-impression fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
         <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
           <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
@@ -4902,14 +4920,14 @@ function RapportModal({ commandes, achats, depenses, personnel, paies = [], clie
     .sort((a, b) => b.du - a.du);
 
   const ligne = (label, val, color) => (
-    <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px dashed ${C.border}` }}>
+    <div className="eviter-coupure flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px dashed ${C.border}` }}>
       <span style={{ color: C.inkSoft }}>{label}</span>
       <span className="mono font-semibold" style={{ color: color || C.ink }}>{fcfa(val)}</span>
     </div>
   );
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+    <div className="overlay-impression fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
         <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
         <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
@@ -4965,7 +4983,7 @@ function RapportModal({ commandes, achats, depenses, personnel, paies = [], clie
             {ligne(`Dépenses & entretiens (${depenses.length})`, totalDepenses)}
             {ligne(`Salaires versés (${personnel.length} employé·s)`, salairesPayes)}
             {salairesDus > 0 && ligne("Salaires non versés (dus)", salairesDus, C.chili)}
-            <div className="flex justify-between py-2 text-sm font-bold">
+            <div className="eviter-coupure flex justify-between py-2 text-sm font-bold">
               <span>Total sorties</span>
               <span className="mono" style={{ color: C.chili }}>{fcfa(sorties)}</span>
             </div>
@@ -5016,7 +5034,7 @@ function ReleveModal({ client, commandes, montantCommande, montantPaye, montantR
     .sort((a, b) => a.date.localeCompare(b.date));
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+    <div className="overlay-impression fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
         <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
           <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
@@ -5089,7 +5107,7 @@ function ReleveModal({ client, commandes, montantCommande, montantPaye, montantR
                 <p className="text-sm" style={{ color: C.inkSoft }}>Aucun versement enregistré.</p>
               ) : (
                 versements.map((v, i) => (
-                  <div key={i} className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px dashed ${C.border}` }}>
+                  <div key={i} className="eviter-coupure flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px dashed ${C.border}` }}>
                     <span className="text-xs" style={{ color: C.inkSoft }}>{fmtDate(v.date)} · {v.moyen} (commande du {fmtDate(v.commandeDate)})</span>
                     <span className="mono font-semibold" style={{ color: C.greenDeep }}>+ {fcfa(v.montant)}</span>
                   </div>
@@ -5101,7 +5119,7 @@ function ReleveModal({ client, commandes, montantCommande, montantPaye, montantR
             <div className="rounded-xl p-4 text-sm space-y-1.5" style={{ background: C.bg }}>
               <div className="flex justify-between"><span style={{ color: C.inkSoft }}>Total commandé</span><span className="mono font-semibold">{fcfa(totalCommande)}</span></div>
               <div className="flex justify-between"><span style={{ color: C.inkSoft }}>Total versé</span><span className="mono font-semibold" style={{ color: C.greenDeep }}>{fcfa(totalPaye)}</span></div>
-              <div className="flex justify-between pt-2 font-bold" style={{ borderTop: `1px solid ${C.border}` }}>
+              <div className="eviter-coupure flex justify-between pt-2 font-bold" style={{ borderTop: `1px solid ${C.border}` }}>
                 <span>Solde dû</span><span className="mono" style={{ color: solde > 0 ? C.chili : C.greenDeep }}>{fcfa(solde)}</span>
               </div>
             </div>
@@ -5220,14 +5238,14 @@ function SignatureModal({ signature, onClose, onSave }) {
 --------------------------------------------------------- */
 function FicheEmploiModal({ emp, signature, onClose }) {
   const infoLigne = (label, val) => val ? (
-    <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px dashed ${C.border}` }}>
+    <div className="eviter-coupure flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px dashed ${C.border}` }}>
       <span style={{ color: C.inkSoft }}>{label}</span>
       <span className="font-semibold text-right">{val}</span>
     </div>
   ) : null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+    <div className="overlay-impression fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
         <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
           <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
@@ -5320,7 +5338,7 @@ function FichePaieModal({ emp, paies, signature, onClose }) {
   const journalier = (emp.typePaie || "mensuel") === "journalier";
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
+    <div className="overlay-impression fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
         <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
           <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
@@ -5365,7 +5383,7 @@ function FichePaieModal({ emp, paies, signature, onClose }) {
             ) : (
               <div className="mb-4">
                 {paiesMois.map((p) => (
-                  <div key={p.id} className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px dashed ${C.border}`, opacity: p.statut === "repos" ? 0.6 : 1 }}>
+                  <div key={p.id} className="eviter-coupure flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px dashed ${C.border}`, opacity: p.statut === "repos" ? 0.6 : 1 }}>
                     <span className="text-xs capitalize" style={{ color: C.inkSoft }}>
                       {p.type === "mensuel" ? nomMois(p.periode) : fmtDate(p.periode)}
                     </span>
@@ -5400,7 +5418,7 @@ function FichePaieModal({ emp, paies, signature, onClose }) {
               {totalDu > 0 && (
                 <div className="flex justify-between"><span style={{ color: C.chili }}>Reste dû à l'employé(e)</span><span className="mono font-semibold" style={{ color: C.chili }}>{fcfa(totalDu)}</span></div>
               )}
-              <div className="flex justify-between pt-2 font-bold" style={{ borderTop: `1px solid ${C.border}` }}>
+              <div className="eviter-coupure flex justify-between pt-2 font-bold" style={{ borderTop: `1px solid ${C.border}` }}>
                 <span>Total du mois</span><span className="mono">{fcfa(totalPaye + totalDu)}</span>
               </div>
             </div>
