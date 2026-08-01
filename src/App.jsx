@@ -328,6 +328,23 @@ function ComingSoon({ titre, points }) {
   );
 }
 
+// Bloc de signature commun à tous les documents officiels.
+// La classe "bloc-signature" le pousse en bas de la dernière page à l'impression.
+function BlocSignature({ signature, mention = "Pour" }) {
+  return (
+    <div className="bloc-signature eviter-coupure flex flex-col items-end mt-6 pt-2">
+      <div className="text-[11px] mb-1" style={{ color: C.inkSoft }}>{mention} {ENTREPRISE.nom},</div>
+      {signature ? (
+        <img src={signature} alt="Signature" className="max-h-16 object-contain" />
+      ) : (
+        <div className="h-14" />
+      )}
+      <div className="w-44" style={{ borderTop: `1px solid ${C.ink}` }} />
+      <div className="text-[11px] mt-1" style={{ color: C.inkSoft }}>La gérante</div>
+    </div>
+  );
+}
+
 function Modal({ title, onClose, children }) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.45)", WebkitOverflowScrolling: "touch" }}>
@@ -983,7 +1000,16 @@ export default function App() {
             border-radius: 0 !important;
             box-shadow: none !important;
             background: #fff !important;
+            /* La zone de contenu occupe toute la hauteur de page : permet de pousser
+               la signature tout en bas de la DERNIÈRE page, même si elle est peu remplie. */
+            display: flex !important;
+            flex-direction: column !important;
+            min-height: calc(100vh - 24mm) !important;
           }
+          .fiche-imprimable > *:not(.no-print) { flex: 0 0 auto; }
+          /* Le conteneur de contenu s'étire, la signature est repoussée en bas */
+          .fiche-imprimable > div:last-child { display: flex !important; flex-direction: column !important; flex: 1 1 auto !important; }
+          .bloc-signature { margin-top: auto !important; }
 
           /* Barre d'action (Imprimer / Fermer) : jamais sur le papier */
           .no-print, .no-print * { display: none !important; }
@@ -3007,7 +3033,7 @@ export default function App() {
           }} />
       )}
       {showFichePrets && (
-        <FichePretsModal prets={prets} montantRembourse={montantRembourse} resteDuPret={resteDuPret} onClose={() => setShowFichePrets(false)} />
+        <FichePretsModal prets={prets} montantRembourse={montantRembourse} resteDuPret={resteDuPret} signature={signature} onClose={() => setShowFichePrets(false)} />
       )}
       {livraisonCmd && (
         <LivraisonModal cmd={livraisonCmd} produits={produits} nomProduit={nomProduit}
@@ -3036,25 +3062,27 @@ export default function App() {
           clients={clients} montantCommande={montantCommande} nomClient={nomClient}
           montantPaye={montantPaye} montantReste={montantReste}
           prets={prets} montantRembourse={montantRembourse} resteDuPret={resteDuPret}
+          signature={signature}
           onClose={() => setShowRapport(false)} />
       )}
       {showFicheComptable && (
         <FicheComptableModal
           commandes={commandes} achats={achats} depenses={depenses} paies={paies} personnel={personnel}
           montantCommande={montantCommande} nomClient={nomClient} nomProduit={nomProduit}
+          signature={signature}
           onClose={() => setShowFicheComptable(false)} />
       )}
       {showFichePersonnel && (
-        <FichePersonnelModal personnel={personnel} onClose={() => setShowFichePersonnel(false)} />
+        <FichePersonnelModal personnel={personnel} signature={signature} onClose={() => setShowFichePersonnel(false)} />
       )}
       {showFicheClients && (
-        <FicheClientsModal clients={clients} commandes={commandes} montantReste={montantReste} onClose={() => setShowFicheClients(false)} />
+        <FicheClientsModal clients={clients} commandes={commandes} montantReste={montantReste} signature={signature} onClose={() => setShowFicheClients(false)} />
       )}
       {showFicheMateriel && (
-        <FicheMaterielModal materiel={materiel} onClose={() => setShowFicheMateriel(false)} />
+        <FicheMaterielModal materiel={materiel} signature={signature} onClose={() => setShowFicheMateriel(false)} />
       )}
       {showFicheCommandes && (
-        <FicheCommandesModal commandes={commandes} nomClient={nomClient} nomProduit={nomProduit} montantCommande={montantCommande} montantReste={montantReste} onClose={() => setShowFicheCommandes(false)} />
+        <FicheCommandesModal commandes={commandes} nomClient={nomClient} nomProduit={nomProduit} montantCommande={montantCommande} montantReste={montantReste} signature={signature} onClose={() => setShowFicheCommandes(false)} />
       )}
       {encaisserCmd && (
         <EncaisserModal
@@ -3082,6 +3110,7 @@ export default function App() {
           commandes={commandes.filter((c) => c.clientId === releveClient.id).sort((a, b) => a.date.localeCompare(b.date))}
           montantCommande={montantCommande} montantPaye={montantPaye} montantReste={montantReste}
           nomProduit={nomProduit}
+          signature={signature}
           onClose={() => setReleveClient(null)} />
       )}
       {confirmation && (
@@ -3673,12 +3702,7 @@ function DocPreviewModal({ doc, client, signature, onClose }) {
           </div>
 
           {/* Signature */}
-          {signature && (
-            <div className="flex flex-col items-end mt-4 mb-2">
-              <div className="text-[11px] mb-1" style={{ color: C.inkSoft }}>Pour {ENTREPRISE.nom},</div>
-              <img src={signature} alt="Signature" className="max-h-16" />
-            </div>
-          )}
+          <BlocSignature signature={signature} />
 
           {/* Pied */}
           <div className="text-xs pt-3" style={{ borderTop: `1px solid ${C.border}`, color: C.inkSoft }}>
@@ -4231,7 +4255,7 @@ function EditRemboursementModal({ remboursement, onClose, onSave }) {
 }
 
 // Fiche imprimable listant tous les prêts (en cours et soldés)
-function FichePretsModal({ prets, montantRembourse, resteDuPret, onClose }) {
+function FichePretsModal({ prets, montantRembourse, resteDuPret, signature, onClose }) {
   const enCours = prets.filter((p) => resteDuPret(p) > 0);
   const soldes = prets.filter((p) => resteDuPret(p) <= 0);
   const bloc = (titre, liste, couleur) => liste.length > 0 && (
@@ -4285,6 +4309,7 @@ function FichePretsModal({ prets, montantRembourse, resteDuPret, onClose }) {
                 {bloc("Soldés", soldes, C.greenDeep)}
               </>
             )}
+            <BlocSignature signature={signature} />
           </div>
         </div>
       </div>
@@ -4428,7 +4453,7 @@ function EncaisserSoldeModal({ client, du, commandes, montantReste, nomProduit, 
 --------------------------------------------------------- */
 // Fiche imprimable listant tout le personnel (actifs et anciens) avec leurs informations clés
 // Fiche imprimable listant tous les clients (actifs et anciens)
-function FicheClientsModal({ clients, commandes, montantReste, onClose }) {
+function FicheClientsModal({ clients, commandes, montantReste, signature, onClose }) {
   const actifs = clients.filter((c) => c.actif !== false);
   const anciens = clients.filter((c) => c.actif === false);
   const bloc = (titre, liste) => liste.length > 0 && (
@@ -4485,6 +4510,7 @@ function FicheClientsModal({ clients, commandes, montantReste, onClose }) {
                 {bloc("Anciens clients", anciens)}
               </>
             )}
+            <BlocSignature signature={signature} />
           </div>
         </div>
       </div>
@@ -4493,7 +4519,7 @@ function FicheClientsModal({ clients, commandes, montantReste, onClose }) {
 }
 
 // Fiche imprimable listant le matériel (en service et gâté/en panne)
-function FicheMaterielModal({ materiel, onClose }) {
+function FicheMaterielModal({ materiel, signature, onClose }) {
   const enService = materiel.filter((m) => m.etat !== "En panne");
   const gate = materiel.filter((m) => m.etat === "En panne");
   const bloc = (titre, liste, couleur) => liste.length > 0 && (
@@ -4545,6 +4571,7 @@ function FicheMaterielModal({ materiel, onClose }) {
                 {bloc("Gâté / en panne", gate, C.chili)}
               </>
             )}
+            <BlocSignature signature={signature} />
           </div>
         </div>
       </div>
@@ -4553,7 +4580,7 @@ function FicheMaterielModal({ materiel, onClose }) {
 }
 
 // Fiche imprimable listant toutes les commandes
-function FicheCommandesModal({ commandes, nomClient, nomProduit, montantCommande, montantReste, onClose }) {
+function FicheCommandesModal({ commandes, nomClient, nomProduit, montantCommande, montantReste, signature, onClose }) {
   const triees = commandes.slice().sort((a, b) => b.date.localeCompare(a.date));
   return (
     <div className="overlay-impression fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
@@ -4597,6 +4624,8 @@ function FicheCommandesModal({ commandes, nomClient, nomProduit, montantCommande
                 ))}
               </div>
             )}
+
+            <BlocSignature signature={signature} />
           </div>
         </div>
       </div>
@@ -4604,7 +4633,7 @@ function FicheCommandesModal({ commandes, nomClient, nomProduit, montantCommande
   );
 }
 
-function FichePersonnelModal({ personnel, onClose }) {
+function FichePersonnelModal({ personnel, signature, onClose }) {
   const actifs = personnel.filter((p) => p.actif !== false);
   const anciens = personnel.filter((p) => p.actif === false);
   const bloc = (titre, liste) => liste.length > 0 && (
@@ -4659,6 +4688,7 @@ function FichePersonnelModal({ personnel, onClose }) {
                 {bloc("Anciens employés", anciens)}
               </>
             )}
+            <BlocSignature signature={signature} />
           </div>
         </div>
       </div>
@@ -4668,7 +4698,7 @@ function FichePersonnelModal({ personnel, onClose }) {
 
 // Fiche comptable détaillée : toutes les entrées/sorties par catégorie et par date,
 // plus le bénéfice/perte par mois et par année.
-function FicheComptableModal({ commandes, achats, depenses, paies, personnel, montantCommande, nomClient, nomProduit, onClose }) {
+function FicheComptableModal({ commandes, achats, depenses, paies, personnel, montantCommande, nomClient, nomProduit, signature, onClose }) {
   const salairesPayes = (paies || []).filter((p) => p.statut === "payé");
 
   // Encaissements réels sur les ventes (mêmes règles que le calcul du bénéfice)
@@ -4893,6 +4923,7 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
             {commandes.length === 0 && achats.length === 0 && depenses.length === 0 && salairesPayes.length === 0 && (
               <p className="text-sm text-center py-6" style={{ color: C.inkSoft }}>Aucune donnée enregistrée pour l'instant.</p>
             )}
+            <BlocSignature signature={signature} />
           </div>
         </div>
       </div>
@@ -4900,7 +4931,7 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
   );
 }
 
-function RapportModal({ commandes, achats, depenses, personnel, paies = [], clients, montantCommande, nomClient, montantPaye, montantReste, prets = [], montantRembourse, resteDuPret, onClose }) {
+function RapportModal({ commandes, achats, depenses, personnel, paies = [], clients, montantCommande, nomClient, montantPaye, montantReste, prets = [], montantRembourse, resteDuPret, signature, onClose }) {
   const totalAchats = achats.reduce((s, a) => s + a.montant, 0);
   const totalDepenses = depenses.reduce((s, d) => s + d.montant, 0);
   const salairesPayes = paies.filter((p) => p.statut === "payé").reduce((s, p) => s + p.montant, 0);
@@ -5010,6 +5041,8 @@ function RapportModal({ commandes, achats, depenses, personnel, paies = [], clie
             </div>
           )}
 
+          <BlocSignature signature={signature} />
+
           <div className="text-[11px] pt-3 text-center" style={{ borderTop: `1px solid ${C.border}`, color: C.inkSoft }}>
             Document généré automatiquement par la plateforme de gestion {ENTREPRISE.nom}.
           </div>
@@ -5023,7 +5056,7 @@ function RapportModal({ commandes, achats, depenses, personnel, paies = [], clie
 /* ---------------------------------------------------------
    RELEVÉ DE COMPTE CLIENT IMPRIMABLE
 --------------------------------------------------------- */
-function ReleveModal({ client, commandes, montantCommande, montantPaye, montantReste, nomProduit, onClose }) {
+function ReleveModal({ client, commandes, montantCommande, montantPaye, montantReste, nomProduit, signature, onClose }) {
   const totalCommande = commandes.reduce((s, c) => s + montantCommande(c), 0);
   const totalPaye = commandes.reduce((s, c) => s + montantPaye(c), 0);
   const solde = totalCommande - totalPaye;
@@ -5123,6 +5156,8 @@ function ReleveModal({ client, commandes, montantCommande, montantPaye, montantR
                 <span>Solde dû</span><span className="mono" style={{ color: solde > 0 ? C.chili : C.greenDeep }}>{fcfa(solde)}</span>
               </div>
             </div>
+
+            <BlocSignature signature={signature} />
 
             <div className="text-[11px] pt-4 text-center" style={{ color: C.inkSoft }}>
               Document généré automatiquement par la plateforme de gestion {ENTREPRISE.nom}.
