@@ -539,6 +539,7 @@ export default function App() {
   const [notifConfirm, setNotifConfirm] = useState(null); // {message, label, action} — confirmation + notification optionnelle
   const [toast, setToast] = useState(null); // message court auto-disparaissant, pour confirmer une action simple
   const [vueComparatif, setVueComparatif] = useState("mois"); // "mois" | "annee" — pour le comparatif Ventes/Bénéfices/Dépenses
+  const [nbPeriodesComparatif, setNbPeriodesComparatif] = useState(6);
   const afficherToast = (message, succes = true) => {
     setToast({ message, succes });
     setTimeout(() => setToast((t) => (t && t.message === message ? null : t)), 2000);
@@ -948,6 +949,34 @@ export default function App() {
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap');
         * { font-family: 'Public Sans', sans-serif; }
         .mono { font-family: 'IBM Plex Mono', monospace; }
+
+        @media print {
+          /* N'imprimer QUE la fiche ouverte, pas l'application derrière (évite les doublons) */
+          body * { visibility: hidden !important; }
+          .fiche-imprimable, .fiche-imprimable * { visibility: visible !important; }
+          .fiche-imprimable {
+            position: absolute !important;
+            inset: 0 !important;
+            background: #fff !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
+            display: block !important;
+            height: auto !important;
+            max-width: none !important;
+            width: 100% !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+          }
+          /* Masquer la barre d'action (boutons Imprimer / Fermer) */
+          .no-print, .no-print * { display: none !important; visibility: hidden !important; }
+          /* Ne jamais couper une ligne de montant ou un bloc entre deux pages */
+          .fiche-imprimable .eviter-coupure,
+          .fiche-imprimable h4,
+          .fiche-imprimable img { break-inside: avoid !important; page-break-inside: avoid !important; }
+          .fiche-imprimable h4 { break-after: avoid !important; page-break-after: avoid !important; }
+          @page { margin: 12mm; }
+        }
       `}</style>
 
       {mode === "gerant" ? (
@@ -1203,12 +1232,20 @@ export default function App() {
                       </div>
                     ))}
                   </div>
-                  {commandes.length > nbDernieresCommandesAffichees && (
-                    <button onClick={() => setNbDernieresCommandesAffichees((n) => n + 5)}
-                      className="w-full mt-3 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
-                      Voir plus
-                    </button>
-                  )}
+                  <div className="flex gap-2 mt-3">
+                    {commandes.length > nbDernieresCommandesAffichees && (
+                      <button onClick={() => setNbDernieresCommandesAffichees((n) => n + 5)}
+                        className="flex-1 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                        Voir plus
+                      </button>
+                    )}
+                    {nbDernieresCommandesAffichees > 5 && (
+                      <button onClick={() => setNbDernieresCommandesAffichees(5)}
+                        className="flex-1 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.inkSoft }}>
+                        Voir moins
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -1969,11 +2006,21 @@ export default function App() {
                               );
                             })}
                           </div>
-                          {granulPaies === "jour" && clesTriees.length > nbGroupesPaiesAffiches && (
-                            <button onClick={() => setNbGroupesPaiesAffiches((n) => n + 14)}
-                              className="w-full mt-3 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
-                              Voir plus de jours
-                            </button>
+                          {granulPaies === "jour" && (clesTriees.length > nbGroupesPaiesAffiches || nbGroupesPaiesAffiches > 14) && (
+                            <div className="flex gap-2 mt-3">
+                              {clesTriees.length > nbGroupesPaiesAffiches && (
+                                <button onClick={() => setNbGroupesPaiesAffiches((n) => n + 14)}
+                                  className="flex-1 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                                  Voir plus de jours
+                                </button>
+                              )}
+                              {nbGroupesPaiesAffiches > 14 && (
+                                <button onClick={() => setNbGroupesPaiesAffiches(14)}
+                                  className="flex-1 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.inkSoft }}>
+                                  Voir moins
+                                </button>
+                              )}
+                            </div>
                           )}
                         </>
                       );
@@ -2137,11 +2184,22 @@ export default function App() {
                   {granulAchatsVentes === "jour" && (() => {
                     const q = rechercheAchats.trim().toLowerCase();
                     const nbJours = new Set(achats.filter((a) => !q || [a.designation, a.fournisseur].some((v) => (v || "").toLowerCase().includes(q))).map((a) => cleGroupe(a.date, "jour"))).size;
-                    return nbJours > nbJoursAchatsAffiches && (
-                      <button onClick={() => setNbJoursAchatsAffiches((n) => n + 14)}
-                        className="w-full mb-6 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
-                        Voir plus de jours
-                      </button>
+                    if (!(nbJours > nbJoursAchatsAffiches || nbJoursAchatsAffiches > 14)) return null;
+                    return (
+                      <div className="flex gap-2 mb-6">
+                        {nbJours > nbJoursAchatsAffiches && (
+                          <button onClick={() => setNbJoursAchatsAffiches((n) => n + 14)}
+                            className="flex-1 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                            Voir plus de jours
+                          </button>
+                        )}
+                        {nbJoursAchatsAffiches > 14 && (
+                          <button onClick={() => setNbJoursAchatsAffiches(14)}
+                            className="flex-1 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.inkSoft }}>
+                            Voir moins
+                          </button>
+                        )}
+                      </div>
                     );
                   })()}
                   </>
@@ -2219,11 +2277,22 @@ export default function App() {
                       const texte = [nomClient(cmd.clientId), ...cmd.items.map((it) => nomProduit(it.produitId))].join(" ").toLowerCase();
                       return texte.includes(q);
                     }).map((cmd) => cleGroupe(cmd.date, "jour"))).size;
-                    return nbJours > nbJoursVentesAffiches && (
-                      <button onClick={() => setNbJoursVentesAffiches((n) => n + 14)}
-                        className="w-full mb-6 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
-                        Voir plus de jours
-                      </button>
+                    if (!(nbJours > nbJoursVentesAffiches || nbJoursVentesAffiches > 14)) return null;
+                    return (
+                      <div className="flex gap-2 mb-6">
+                        {nbJours > nbJoursVentesAffiches && (
+                          <button onClick={() => setNbJoursVentesAffiches((n) => n + 14)}
+                            className="flex-1 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                            Voir plus de jours
+                          </button>
+                        )}
+                        {nbJoursVentesAffiches > 14 && (
+                          <button onClick={() => setNbJoursVentesAffiches(14)}
+                            className="flex-1 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.inkSoft }}>
+                            Voir moins
+                          </button>
+                        )}
+                      </div>
                     );
                   })()}
                   </>
@@ -2325,11 +2394,22 @@ export default function App() {
                   {granulDepenses === "jour" && (() => {
                     const q = rechercheDepenses.trim().toLowerCase();
                     const nbJours = new Set(depenses.filter((d) => !q || [d.designation, d.categorie].some((v) => (v || "").toLowerCase().includes(q))).map((d) => cleGroupe(d.date, "jour"))).size;
-                    return nbJours > nbJoursDepensesAffiches && (
-                      <button onClick={() => setNbJoursDepensesAffiches((n) => n + 14)}
-                        className="w-full mb-6 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
-                        Voir plus de jours
-                      </button>
+                    if (!(nbJours > nbJoursDepensesAffiches || nbJoursDepensesAffiches > 14)) return null;
+                    return (
+                      <div className="flex gap-2 mb-6">
+                        {nbJours > nbJoursDepensesAffiches && (
+                          <button onClick={() => setNbJoursDepensesAffiches((n) => n + 14)}
+                            className="flex-1 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                            Voir plus de jours
+                          </button>
+                        )}
+                        {nbJoursDepensesAffiches > 14 && (
+                          <button onClick={() => setNbJoursDepensesAffiches(14)}
+                            className="flex-1 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.inkSoft }}>
+                            Voir moins
+                          </button>
+                        )}
+                      </div>
                     );
                   })()}
                   </>
@@ -2521,7 +2601,7 @@ export default function App() {
                 statsMois[k] = statsMois[k] || { ventes: 0, depenses: 0 };
                 statsMois[k].depenses += p.montant;
               });
-              const moisComparatif = Object.keys(statsMois).sort().slice(-12).map((k) => ({
+              const moisComparatif = Object.keys(statsMois).sort().map((k) => ({
                 cle: k, label: nomMois(k), ventes: statsMois[k].ventes, depenses: statsMois[k].depenses,
                 benefice: statsMois[k].ventes - statsMois[k].depenses,
               }));
@@ -2618,7 +2698,7 @@ export default function App() {
                       <h3 className="font-bold" style={{ color: C.ink, fontFamily: "'Fraunces', serif" }}>Comparatif Ventes / Bénéfices / Dépenses</h3>
                       <div className="flex rounded-lg overflow-hidden" style={{ border: `1px solid ${C.border}` }}>
                         {["mois", "annee"].map((v) => (
-                          <button key={v} onClick={() => setVueComparatif(v)}
+                          <button key={v} onClick={() => { setVueComparatif(v); setNbPeriodesComparatif(6); }}
                             className="px-3 py-1.5 text-xs font-semibold"
                             style={{ background: vueComparatif === v ? C.green : "transparent", color: vueComparatif === v ? "#fff" : C.inkSoft }}>
                             {v === "mois" ? "Par mois" : "Par année"}
@@ -2634,8 +2714,9 @@ export default function App() {
                     {donneesComparatif.length === 0 ? (
                       <p className="text-xs text-center py-4" style={{ color: C.inkSoft }}>Pas encore assez de données pour un comparatif.</p>
                     ) : (
+                      <>
                       <div className="space-y-4">
-                        {donneesComparatif.slice().reverse().map((d) => (
+                        {donneesComparatif.slice().reverse().slice(0, nbPeriodesComparatif).map((d) => (
                           <div key={d.cle}>
                             <div className="text-xs font-semibold capitalize mb-1" style={{ color: C.ink }}>{d.label}</div>
                             {[
@@ -2653,6 +2734,23 @@ export default function App() {
                           </div>
                         ))}
                       </div>
+                      {(donneesComparatif.length > nbPeriodesComparatif || nbPeriodesComparatif > 6) && (
+                        <div className="flex gap-2 mt-4">
+                          {donneesComparatif.length > nbPeriodesComparatif && (
+                            <button onClick={() => setNbPeriodesComparatif((n) => n + 6)}
+                              className="flex-1 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.ink }}>
+                              Voir plus {vueComparatif === "mois" ? "de mois" : "d'années"}
+                            </button>
+                          )}
+                          {nbPeriodesComparatif > 6 && (
+                            <button onClick={() => setNbPeriodesComparatif(6)}
+                              className="flex-1 py-2 rounded-xl text-xs font-semibold" style={{ background: C.bgAlt, color: C.inkSoft }}>
+                              Voir moins
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      </>
                     )}
                   </div>
 
@@ -3470,9 +3568,9 @@ function DocPreviewModal({ doc, client, signature, onClose }) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
-        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+        <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
         {/* Barre d'actions */}
-        <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+        <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
           <span className="text-sm font-semibold text-white">{t.label} {doc.numero}</span>
           <div className="flex items-center gap-2">
             <button onClick={imprimer} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.green, color: "#fff" }}>
@@ -4123,7 +4221,7 @@ function FichePretsModal({ prets, montantRembourse, resteDuPret, onClose }) {
       <h4 className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: couleur }}>{titre} ({liste.length})</h4>
       <div className="space-y-3">
         {liste.map((p) => (
-          <div key={p.id} className="rounded-lg p-3" style={{ background: C.bg }}>
+          <div key={p.id} className="eviter-coupure rounded-lg p-3" style={{ background: C.bg }}>
             <div className="font-semibold text-sm" style={{ color: C.ink }}>{p.banque}</div>
             <div className="text-xs mt-1 space-y-0.5" style={{ color: C.inkSoft }}>
               <div>Montant emprunté : {fcfa(p.montant)}</div>
@@ -4141,8 +4239,8 @@ function FichePretsModal({ prets, montantRembourse, resteDuPret, onClose }) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
-        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
-          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+        <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
             <span className="text-sm font-semibold text-white">Fiche des prêts</span>
             <div className="flex items-center gap-2">
               <button onClick={() => { try { window.print(); } catch {} }}
@@ -4323,7 +4421,7 @@ function FicheClientsModal({ clients, commandes, montantReste, onClose }) {
           const cmds = commandes.filter((o) => o.clientId === c.id);
           const du = cmds.reduce((s, o) => s + montantReste(o), 0);
           return (
-            <div key={c.id} className="rounded-lg p-3" style={{ background: C.bg }}>
+            <div key={c.id} className="eviter-coupure rounded-lg p-3" style={{ background: C.bg }}>
               <div className="font-semibold text-sm" style={{ color: C.ink }}>{c.nom}</div>
               <div className="text-xs mt-1 space-y-0.5" style={{ color: C.inkSoft }}>
                 {c.tel && <div>Téléphone : {c.tel}</div>}
@@ -4341,8 +4439,8 @@ function FicheClientsModal({ clients, commandes, montantReste, onClose }) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
-        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
-          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+        <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
             <span className="text-sm font-semibold text-white">Fiche clients</span>
             <div className="flex items-center gap-2">
               <button onClick={() => { try { window.print(); } catch {} }}
@@ -4385,7 +4483,7 @@ function FicheMaterielModal({ materiel, onClose }) {
       <h4 className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: couleur }}>{titre} ({liste.length})</h4>
       <div className="space-y-3">
         {liste.map((m) => (
-          <div key={m.id} className="rounded-lg p-3" style={{ background: C.bg }}>
+          <div key={m.id} className="eviter-coupure rounded-lg p-3" style={{ background: C.bg }}>
             <div className="font-semibold text-sm" style={{ color: C.ink }}>{m.nom}</div>
             <div className="text-xs mt-1 space-y-0.5" style={{ color: C.inkSoft }}>
               <div>État : {m.etat || "Bon état"}</div>
@@ -4401,8 +4499,8 @@ function FicheMaterielModal({ materiel, onClose }) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
-        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
-          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+        <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
             <span className="text-sm font-semibold text-white">Fiche matériel</span>
             <div className="flex items-center gap-2">
               <button onClick={() => { try { window.print(); } catch {} }}
@@ -4442,8 +4540,8 @@ function FicheCommandesModal({ commandes, nomClient, nomProduit, montantCommande
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
-        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
-          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+        <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
             <span className="text-sm font-semibold text-white">Fiche commandes</span>
             <div className="flex items-center gap-2">
               <button onClick={() => { try { window.print(); } catch {} }}
@@ -4467,7 +4565,7 @@ function FicheCommandesModal({ commandes, nomClient, nomProduit, montantCommande
             ) : (
               <div className="space-y-3">
                 {triees.map((cmd) => (
-                  <div key={cmd.id} className="rounded-lg p-3" style={{ background: C.bg }}>
+                  <div key={cmd.id} className="eviter-coupure rounded-lg p-3" style={{ background: C.bg }}>
                     <div className="flex items-center justify-between">
                       <div className="font-semibold text-sm" style={{ color: C.ink }}>{nomClient(cmd.clientId)}</div>
                       <span className="mono text-sm font-semibold" style={{ color: C.greenDeep }}>{fcfa(montantCommande(cmd))}</span>
@@ -4496,7 +4594,7 @@ function FichePersonnelModal({ personnel, onClose }) {
       <h4 className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: C.greenDeep }}>{titre} ({liste.length})</h4>
       <div className="space-y-3">
         {liste.map((p) => (
-          <div key={p.id} className="rounded-lg p-3" style={{ background: C.bg }}>
+          <div key={p.id} className="eviter-coupure rounded-lg p-3" style={{ background: C.bg }}>
             <div className="font-semibold text-sm" style={{ color: C.ink }}>{p.nom}</div>
             <div className="text-xs mt-1 space-y-0.5" style={{ color: C.inkSoft }}>
               <div>Poste : {p.poste || "—"}</div>
@@ -4515,8 +4613,8 @@ function FichePersonnelModal({ personnel, onClose }) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
-        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
-          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+        <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
             <span className="text-sm font-semibold text-white">Fiche du personnel</span>
             <div className="flex items-center gap-2">
               <button onClick={() => { try { window.print(); } catch {} }}
@@ -4639,7 +4737,7 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
       <div className="mb-7">
         <h4 className="text-xs font-bold uppercase tracking-widest mb-2 pb-1" style={{ color: couleur, borderBottom: `2px solid ${couleur}` }}>{titre}</h4>
         {Object.keys(parMois).sort().reverse().map((k) => (
-          <div key={k} className="flex items-center justify-between text-xs py-1.5 capitalize" style={{ borderBottom: `1px dotted ${C.border}` }}>
+          <div key={k} className="eviter-coupure flex items-center justify-between text-xs py-1.5 capitalize" style={{ borderBottom: `1px dotted ${C.border}` }}>
             <span style={{ color: C.ink }}>
               {new Date(k + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}
               <span className="ml-1" style={{ color: C.inkSoft }}>({parMois[k].nb} {motUnite}{parMois[k].nb > 1 ? "s" : ""})</span>
@@ -4647,7 +4745,7 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
             <span className="mono font-semibold shrink-0 ml-2" style={{ color: couleur }}>{fcfa(parMois[k].total)}</span>
           </div>
         ))}
-        <div className="flex items-center justify-between text-xs py-2 mt-1 font-bold" style={{ borderTop: `2px solid ${couleur}` }}>
+        <div className="eviter-coupure flex items-center justify-between text-xs py-2 mt-1 font-bold" style={{ borderTop: `2px solid ${couleur}` }}>
           <span style={{ color: C.ink }}>TOTAL GÉNÉRAL</span>
           <span className="mono shrink-0 ml-2" style={{ color: couleur }}>{fcfa(totalGeneral)}</span>
         </div>
@@ -4658,8 +4756,8 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
-        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
-          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+        <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
             <span className="text-sm font-semibold text-white">Fiche comptable détaillée</span>
             <div className="flex items-center gap-2">
               <button onClick={() => { try { window.print(); } catch {} }}
@@ -4684,21 +4782,21 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
               <h4 className="text-xs font-bold uppercase tracking-widest mb-3 pb-1" style={{ color: C.ink, borderBottom: `2px solid ${C.ink}` }}>Synthèse générale</h4>
 
               <div className="text-[11px] font-bold uppercase tracking-wide mb-1.5" style={{ color: C.greenDeep }}>1 · Situation réelle (argent effectivement reçu)</div>
-              <div className="flex items-center justify-between text-xs py-1" style={{ borderBottom: `1px dotted ${C.border}` }}>
+              <div className="eviter-coupure flex items-center justify-between text-xs py-1" style={{ borderBottom: `1px dotted ${C.border}` }}>
                 <span style={{ color: C.ink }}>Total encaissé</span>
                 <span className="mono font-semibold" style={{ color: C.greenDeep }}>{fcfa(totalEncaisse)}</span>
               </div>
-              <div className="flex items-center justify-between text-xs py-1" style={{ borderBottom: `1px dotted ${C.border}` }}>
+              <div className="eviter-coupure flex items-center justify-between text-xs py-1" style={{ borderBottom: `1px dotted ${C.border}` }}>
                 <span style={{ color: C.ink }}>Total sorties (achats + dépenses + salaires)</span>
                 <span className="mono font-semibold" style={{ color: C.chili }}>− {fcfa(totalSorties)}</span>
               </div>
-              <div className="flex items-center justify-between text-xs py-2 font-bold" style={{ borderBottom: `2px solid ${C.border}` }}>
+              <div className="eviter-coupure flex items-center justify-between text-xs py-2 font-bold" style={{ borderBottom: `2px solid ${C.border}` }}>
                 <span style={{ color: C.ink }}>{resultatEncaisse >= 0 ? "BÉNÉFICE RÉEL" : "PERTE RÉELLE"}</span>
                 <span className="mono" style={{ color: resultatEncaisse >= 0 ? C.greenDeep : C.chili }}>{resultatEncaisse >= 0 ? "+" : "−"} {fcfa(Math.abs(resultatEncaisse))}</span>
               </div>
 
               <div className="text-[11px] font-bold uppercase tracking-wide mt-4 mb-1.5" style={{ color: C.gold }}>2 · Argent dû par les clients (pas encore reçu)</div>
-              <div className="flex items-center justify-between text-xs py-1" style={{ borderBottom: `1px dotted ${C.border}` }}>
+              <div className="eviter-coupure flex items-center justify-between text-xs py-1" style={{ borderBottom: `1px dotted ${C.border}` }}>
                 <span style={{ color: C.ink }}>Créances à recouvrer</span>
                 <span className="mono font-semibold" style={{ color: C.gold }}>{fcfa(totalCreances)}</span>
               </div>
@@ -4707,7 +4805,7 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
               </p>
 
               <div className="text-[11px] font-bold uppercase tracking-wide mt-4 mb-1.5" style={{ color: C.inkSoft }}>3 · Situation projetée (si tout était encaissé)</div>
-              <div className="flex items-center justify-between text-xs py-2 font-bold" style={{ borderTop: `2px solid ${C.border}` }}>
+              <div className="eviter-coupure flex items-center justify-between text-xs py-2 font-bold" style={{ borderTop: `2px solid ${C.border}` }}>
                 <span style={{ color: C.ink }}>{resultatProjete >= 0 ? "BÉNÉFICE PROJETÉ" : "PERTE PROJETÉE"}</span>
                 <span className="mono" style={{ color: resultatProjete >= 0 ? C.greenDeep : C.chili }}>{resultatProjete >= 0 ? "+" : "−"} {fcfa(Math.abs(resultatProjete))}</span>
               </div>
@@ -4725,7 +4823,7 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
                 const s = statsMois[k];
                 const b = s.ventes - s.depenses;
                 return (
-                  <div key={k} className="flex items-center justify-between text-xs py-1.5 capitalize" style={{ borderBottom: `1px dotted ${C.border}` }}>
+                  <div key={k} className="eviter-coupure flex items-center justify-between text-xs py-1.5 capitalize" style={{ borderBottom: `1px dotted ${C.border}` }}>
                     <span style={{ color: C.ink }}>{new Date(k + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</span>
                     <span className="mono font-semibold" style={{ color: b >= 0 ? C.greenDeep : C.chili }}>{b >= 0 ? "+" : ""}{fcfa(b)}</span>
                   </div>
@@ -4742,7 +4840,7 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
                 const s = statsAnnee[an];
                 const b = s.ventes - s.depenses;
                 return (
-                  <div key={an} className="flex items-center justify-between text-xs py-1.5" style={{ borderBottom: `1px dotted ${C.border}` }}>
+                  <div key={an} className="eviter-coupure flex items-center justify-between text-xs py-1.5" style={{ borderBottom: `1px dotted ${C.border}` }}>
                     <span style={{ color: C.ink }}>{an}</span>
                     <span className="mono font-semibold" style={{ color: b >= 0 ? C.greenDeep : C.chili }}>{b >= 0 ? "+" : ""}{fcfa(b)}</span>
                   </div>
@@ -4762,12 +4860,12 @@ function FicheComptableModal({ commandes, achats, depenses, paies, personnel, mo
                 {Object.keys(creancesParClient)
                   .sort((a, b) => creancesParClient[b] - creancesParClient[a])
                   .map((cid) => (
-                    <div key={cid} className="flex items-center justify-between text-xs py-1.5" style={{ borderBottom: `1px dotted ${C.border}` }}>
+                    <div key={cid} className="eviter-coupure flex items-center justify-between text-xs py-1.5" style={{ borderBottom: `1px dotted ${C.border}` }}>
                       <span style={{ color: C.ink }}>{nomClient(cid)}</span>
                       <span className="mono font-semibold shrink-0 ml-2" style={{ color: C.gold }}>{fcfa(creancesParClient[cid])}</span>
                     </div>
                   ))}
-                <div className="flex items-center justify-between text-xs py-2 mt-1 font-bold" style={{ borderTop: `2px solid ${C.gold}` }}>
+                <div className="eviter-coupure flex items-center justify-between text-xs py-2 mt-1 font-bold" style={{ borderTop: `2px solid ${C.gold}` }}>
                   <span style={{ color: C.ink }}>TOTAL GÉNÉRAL</span>
                   <span className="mono shrink-0 ml-2" style={{ color: C.gold }}>{fcfa(totalCreances)}</span>
                 </div>
@@ -4813,8 +4911,8 @@ function RapportModal({ commandes, achats, depenses, personnel, paies = [], clie
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
-        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
-        <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+        <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+        <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
           <span className="text-sm font-semibold text-white">Rapport d'activité</span>
           <div className="flex items-center gap-2">
             <button onClick={() => { try { window.print(); } catch {} }}
@@ -4920,8 +5018,8 @@ function ReleveModal({ client, commandes, montantCommande, montantPaye, montantR
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
-        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
-          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+        <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
             <span className="text-sm font-semibold text-white">Relevé de compte</span>
             <div className="flex items-center gap-2">
               <button onClick={() => { try { window.print(); } catch {} }}
@@ -5131,8 +5229,8 @@ function FicheEmploiModal({ emp, signature, onClose }) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
-        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
-          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+        <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
             <span className="text-sm font-semibold text-white">Fiche d'emploi</span>
             <div className="flex items-center gap-2">
               <button onClick={() => { try { window.print(); } catch {} }}
@@ -5224,8 +5322,8 @@ function FichePaieModal({ emp, paies, signature, onClose }) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "rgba(36,26,21,0.55)", WebkitOverflowScrolling: "touch" }}>
       <div className="min-h-full flex items-start justify-center p-3 py-6">
-        <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
-          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
+        <div className="fiche-imprimable w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: "#fff" }}>
+          <div className="no-print sticky top-0 z-10 flex items-center justify-between px-4 py-3" style={{ background: C.ink }}>
             <span className="text-sm font-semibold text-white">Fiche de paie</span>
             <div className="flex items-center gap-2">
               <button onClick={() => { try { window.print(); } catch {} }}
