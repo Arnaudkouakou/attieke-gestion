@@ -1334,14 +1334,14 @@ export default function App() {
                     const cmds = commandes.filter((o) => o.clientId === c.id);
                     const du = cmds.reduce((s, o) => s + montantReste(o), 0);
                     return (
-                      <div key={c.id} className="flex items-center justify-between p-4" style={{ borderBottom: `1px solid ${C.border}` }}>
-                        <div className="flex items-center gap-3">
+                      <div key={c.id} className="flex items-center justify-between gap-2 p-4" style={{ borderBottom: `1px solid ${C.border}` }}>
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
                           {c.photo ? (
                             <img src={c.photo} alt={c.nom} className="w-10 h-10 rounded-full object-cover shrink-0" style={{ border: `2px solid ${c.actif === false ? C.border : C.green}` }} />
                           ) : (
                             <ClaieBadge size={38}><Users size={16} /></ClaieBadge>
                           )}
-                          <div>
+                          <div className="min-w-0">
                             <div className="font-semibold text-sm flex items-center gap-2" style={{ color: C.ink }}>
                               {c.nom}
                               {c.actif === false && (
@@ -1377,8 +1377,8 @@ export default function App() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <div className="text-right">
+                        <div className="flex items-center gap-2 shrink-0 max-w-[52%]">
+                          <div className="text-right min-w-0">
                             <div className="text-xs" style={{ color: C.inkSoft }}>{cmds.length} commande(s)</div>
                             <div className="mono text-sm font-semibold" style={{ color: du > 0 ? C.chili : C.green }}>
                               {du > 0 ? `Doit ${fcfa(du)}` : "À jour"}
@@ -3429,13 +3429,13 @@ function AddCommandeModal({ clients, produits, initial, onClose, onSave }) {
       {/* Saisie par montant : le système déduit la quantité automatiquement */}
       <div className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px dashed ${C.border}` }}>
         <div className="text-xs font-semibold mb-2" style={{ color: C.ink }}>💰 Saisir par montant (optionnel)</div>
-        <div className="flex gap-2 mb-2">
+        <div className="mb-2">
           <select value={produitMontant} onChange={(e) => setProduitMontant(e.target.value)}
-            className="flex-1 px-2 py-2 rounded-lg text-sm" style={inputStyle}>
+            className="w-full px-2 py-2 rounded-lg text-sm mb-2" style={inputStyle}>
             {produits.map((p) => <option key={p.id} value={p.id}>{p.nom} — {fcfa(p.prix)}</option>)}
           </select>
           <input type="number" min="0" value={montantSaisi} onChange={(e) => setMontantSaisi(e.target.value)}
-            placeholder="Montant" className="w-28 px-2 py-2 rounded-lg text-sm" style={inputStyle} />
+            placeholder="Montant (FCFA)" className="w-full px-2 py-2 rounded-lg text-sm" style={inputStyle} />
         </div>
         {Number(montantSaisi) > 0 && produitChoisi && (
           <div className="text-xs mb-2" style={{ color: C.inkSoft }}>
@@ -3452,12 +3452,12 @@ function AddCommandeModal({ clients, produits, initial, onClose, onSave }) {
       <div className="mb-3">
         <span className="block text-xs font-semibold mb-1" style={{ color: C.inkSoft }}>Produits</span>
         {items.map((it, i) => (
-          <div key={i} className="flex gap-2 mb-2">
-            <select value={it.produitId} onChange={(e) => updateLigne(i, "produitId", e.target.value)} className="flex-1 px-2 py-2 rounded-lg text-sm" style={inputStyle}>
+          <div key={i} className="flex gap-2 mb-2 items-center">
+            <select value={it.produitId} onChange={(e) => updateLigne(i, "produitId", e.target.value)} className="flex-1 min-w-0 px-2 py-2 rounded-lg text-sm" style={inputStyle}>
               {produits.map((p) => <option key={p.id} value={p.id}>{p.nom}</option>)}
             </select>
-            <input type="number" min="1" value={it.qte} onChange={(e) => updateLigne(i, "qte", Number(e.target.value))} className="w-16 px-2 py-2 rounded-lg text-sm" style={inputStyle} />
-            <button onClick={() => removeLigne(i)} className="w-9 rounded-lg flex items-center justify-center" style={{ background: C.chiliSoft, color: C.chili }}><Trash2 size={14} /></button>
+            <input type="number" min="1" value={it.qte} onChange={(e) => updateLigne(i, "qte", Number(e.target.value))} className="w-16 shrink-0 px-2 py-2 rounded-lg text-sm" style={inputStyle} />
+            <button onClick={() => removeLigne(i)} className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center" style={{ background: C.chiliSoft, color: C.chili }}><Trash2 size={14} /></button>
           </div>
         ))}
         <button onClick={addLigne} className="text-xs font-semibold flex items-center gap-1" style={{ color: C.green }}><Plus size={12} /> Ajouter une ligne</button>
