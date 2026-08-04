@@ -488,6 +488,7 @@ export default function App() {
   const [ficheEmploi, setFicheEmploi] = useState(null); // employé dont on affiche la fiche d'emploi
   const [fichePaie, setFichePaie] = useState(null); // employé dont on affiche la fiche de paie
   const [paieAnterieure, setPaieAnterieure] = useState(null); // employé pour qui on ajoute une paie d'un jour antérieur
+  const [paiementJournee, setPaiementJournee] = useState(null); // { paie, nom } — ajustement du montant au moment du paiement
   const [filtrePersonnel, setFiltrePersonnel] = useState("actifs"); // "actifs" | "anciens"
   const [rechercherPersonnel, setRecherchePersonnel] = useState("");
   const [vuePersonnel, setVuePersonnel] = useState("cartes"); // "cartes" | "liste"
@@ -695,6 +696,7 @@ export default function App() {
 
     personnel.forEach((emp) => {
       if (emp.actif === false) return; // employé parti : plus aucune nouvelle paie générée
+      if (emp.reserviste) return; // réserviste : payé uniquement les jours où le gérant fait appel à lui
       const type = emp.typePaie || "mensuel";
       // Les paies ne sont générées qu'à partir de l'enregistrement de l'employé sur cette plateforme,
       // jamais avant : la date d'embauche réelle est purement informative. Si l'info d'enregistrement
@@ -1862,8 +1864,11 @@ export default function App() {
                               <ClaieBadge size={vuePersonnel === "liste" ? 32 : 48}><UserCog size={vuePersonnel === "liste" ? 14 : 18} /></ClaieBadge>
                             )}
                             <div className="min-w-0">
-                              <div className="font-semibold text-sm flex items-center gap-2" style={{ color: C.ink }}>
+                              <div className="font-semibold text-sm flex items-center gap-2 flex-wrap" style={{ color: C.ink }}>
                                 {p.nom}
+                                {p.reserviste && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: C.goldSoft, color: "#8A5D14" }}>RÉSERVISTE</span>
+                                )}
                                 {p.actif === false && (
                                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: C.bgAlt, color: C.inkSoft }}>ANCIEN</span>
                                 )}
@@ -1906,8 +1911,8 @@ export default function App() {
                           {(p.typePaie || "mensuel") === "journalier" && (
                             <button onClick={() => setPaieAnterieure(p)}
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
-                              style={{ background: C.bgAlt, color: C.ink }}>
-                              <CalendarDays size={12} /> Jour antérieur
+                              style={{ background: p.reserviste ? C.greenSoft : C.bgAlt, color: p.reserviste ? C.greenDeep : C.ink }}>
+                              <CalendarDays size={12} /> {p.reserviste ? "Ajouter une journée" : "Jour antérieur"}
                             </button>
                           )}
                           {paies.some((pa) => pa.employeId === p.id && !pa.manuel && pa.periode < (p.dateAjoutApp || todayISO())) && (
@@ -2030,7 +2035,12 @@ export default function App() {
                                         <div className="flex items-center gap-2 shrink-0">
                                           <span className="mono text-sm font-semibold" style={{ color: statut === "repos" ? C.inkSoft : C.ink, textDecoration: statut === "repos" ? "line-through" : "none" }}>{fcfa(pa.montant)}</span>
                                           <button
-                                            onClick={() => updatePaies(paies.map((x) => x.id === pa.id ? { ...x, statut: suivant } : x))}
+                                            onClick={() => {
+                                              // Passage à "payé" : on permet d'ajuster le montant de CETTE journée
+                                              // (le salaire de base de l'employé reste inchangé).
+                                              if (suivant === "payé") setPaiementJournee({ paie: pa, nom: emp?.nom || "—" });
+                                              else updatePaies(paies.map((x) => x.id === pa.id ? { ...x, statut: suivant } : x));
+                                            }}
                                             className="px-3 py-1.5 rounded-lg text-xs font-semibold w-24"
                                             style={{ background: s.bg, color: s.fg }}>
                                             {s.label}
@@ -3045,6 +3055,15 @@ export default function App() {
             afficherToast("Journée antérieure ajoutée à la paie");
           }} />
       )}
+      {paiementJournee && (
+        <PaiementJourneeModal paie={paiementJournee.paie} nom={paiementJournee.nom}
+          onClose={() => setPaiementJournee(null)}
+          onSave={(montant) => {
+            updatePaies(paies.map((x) => x.id === paiementJournee.paie.id ? { ...x, statut: "payé", montant } : x));
+            setPaiementJournee(null);
+            afficherToast("Paiement enregistré");
+          }} />
+      )}
       {showDepenseModal && (
         <AddDepenseModal onClose={() => setShowDepenseModal(false)}
           onSave={(d) => { updateDepenses([...depenses, d]); setShowDepenseModal(false); afficherToast("Dépense enregistrée"); }} />
@@ -3250,18 +3269,49 @@ function AddProduitModal({ onClose, onSave }) {
 // recalculent automatiquement à partir des quantités livrées.
 // Permet au gérant d'inclure volontairement, au cas par cas, un jour antérieur à
 // l'enregistrement de l'employé dans l'app (par défaut ces jours ne sont jamais comptés).
+// Confirmation du paiement d'une journée, avec possibilité d'ajuster le montant selon la
+// tâche effectuée ce jour-là. Le salaire de base de l'employé n'est PAS modifié.
+function PaiementJourneeModal({ paie, nom, onClose, onSave }) {
+  const [montant, setMontant] = useState(paie.montant ?? "");
+  const modifie = Number(montant) !== Number(paie.montant);
+  return (
+    <Modal title={`Payer — ${nom}`} onClose={onClose}>
+      <p className="text-xs mb-3" style={{ color: C.inkSoft }}>
+        {paie.type === "journalier" ? "Journée" : "Mois"} du {fmtDate(paie.periode.length === 7 ? paie.periode + "-01" : paie.periode)}.
+        Ajuste le montant si la tâche du jour le justifie — le salaire de base de {nom} restera inchangé.
+      </p>
+      <Field label="Montant versé (FCFA)">
+        <input type="number" min="0" value={montant} onChange={(e) => setMontant(e.target.value)}
+          className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+      </Field>
+      {modifie && (
+        <p className="text-[11px] -mt-2 mb-3 font-semibold" style={{ color: C.gold }}>
+          Montant habituel : {fcfa(paie.montant)} — seule cette journée est concernée.
+        </p>
+      )}
+      <button disabled={!(Number(montant) >= 0) || montant === ""}
+        onClick={() => onSave(Number(montant))}
+        className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
+        Confirmer le paiement
+      </button>
+    </Modal>
+  );
+}
+
 function PaieAnterieureModal({ emp, paies, onClose, onSave }) {
   const [date, setDate] = useState(todayISO());
   const [montant, setMontant] = useState(emp.salaire || "");
   const [statut, setStatut] = useState("payé");
   const dejaExistante = paies.some((pa) => pa.id === `${emp.id}:${date}`);
   return (
-    <Modal title={`Jour antérieur — ${emp.nom}`} onClose={onClose}>
+    <Modal title={emp.reserviste ? `Ajouter une journée — ${emp.nom}` : `Jour antérieur — ${emp.nom}`} onClose={onClose}>
       <p className="text-xs mb-3" style={{ color: C.inkSoft }}>
-        Par défaut, seules les journées à partir de l'enregistrement de {emp.nom} dans l'app sont comptabilisées. Utilise ce formulaire uniquement si tu veux volontairement inclure un jour antérieur (régularisation, rattrapage…).
+        {emp.reserviste
+          ? `${emp.nom} est réserviste : ajoute ici chaque journée où tu as fait appel à lui/elle, avec le montant convenu pour la tâche (ajustable à chaque fois).`
+          : `Par défaut, seules les journées à partir de l'enregistrement de ${emp.nom} dans l'app sont comptabilisées. Utilise ce formulaire uniquement si tu veux volontairement inclure un jour antérieur (régularisation, rattrapage…).`}
       </p>
       <Field label="Date du jour concerné"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
-      <Field label="Montant (FCFA)"><input type="number" value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
+      <Field label={emp.reserviste ? "Montant convenu pour cette journée (FCFA)" : "Montant (FCFA)"}><input type="number" value={montant} onChange={(e) => setMontant(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} /></Field>
       <Field label="Statut">
         <select value={statut} onChange={(e) => setStatut(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle}>
           <option value="payé">Payé</option><option value="non payé">Non payé</option>
@@ -3345,6 +3395,29 @@ function AddCommandeModal({ clients, produits, initial, onClose, onSave }) {
     return s + (p ? p.prix * Number(it.qte || 0) : 0);
   }, 0);
 
+  // Saisie alternative : le gérant entre un MONTANT et le système déduit la quantité
+  // selon le prix du produit choisi. N'altère en rien la saisie classique par quantité.
+  const [montantSaisi, setMontantSaisi] = useState("");
+  const [produitMontant, setProduitMontant] = useState(produits[0]?.id || "");
+  const produitChoisi = produits.find((p) => p.id === produitMontant);
+  const qteDeduite = produitChoisi && produitChoisi.prix > 0
+    ? Math.floor(Number(montantSaisi || 0) / produitChoisi.prix)
+    : 0;
+  const resteMontant = produitChoisi && produitChoisi.prix > 0
+    ? Number(montantSaisi || 0) - qteDeduite * produitChoisi.prix
+    : 0;
+  const ajouterParMontant = () => {
+    if (!produitChoisi || qteDeduite <= 0) return;
+    const existant = items.findIndex((it) => it.produitId === produitMontant);
+    if (existant >= 0) {
+      setItems(items.map((it, i) => i === existant ? { ...it, qte: Number(it.qte || 0) + qteDeduite } : it));
+    } else {
+      const vide = items.length === 1 && !items[0].qte;
+      setItems(vide ? [{ produitId: produitMontant, qte: qteDeduite }] : [...items, { produitId: produitMontant, qte: qteDeduite }]);
+    }
+    setMontantSaisi("");
+  };
+
   return (
     <Modal title={initial ? "Modifier la commande" : "Nouvelle commande"} onClose={onClose}>
       <Field label="Client">
@@ -3352,6 +3425,29 @@ function AddCommandeModal({ clients, produits, initial, onClose, onSave }) {
           {clients.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
         </select>
       </Field>
+
+      {/* Saisie par montant : le système déduit la quantité automatiquement */}
+      <div className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px dashed ${C.border}` }}>
+        <div className="text-xs font-semibold mb-2" style={{ color: C.ink }}>💰 Saisir par montant (optionnel)</div>
+        <div className="flex gap-2 mb-2">
+          <select value={produitMontant} onChange={(e) => setProduitMontant(e.target.value)}
+            className="flex-1 px-2 py-2 rounded-lg text-sm" style={inputStyle}>
+            {produits.map((p) => <option key={p.id} value={p.id}>{p.nom} — {fcfa(p.prix)}</option>)}
+          </select>
+          <input type="number" min="0" value={montantSaisi} onChange={(e) => setMontantSaisi(e.target.value)}
+            placeholder="Montant" className="w-28 px-2 py-2 rounded-lg text-sm" style={inputStyle} />
+        </div>
+        {Number(montantSaisi) > 0 && produitChoisi && (
+          <div className="text-xs mb-2" style={{ color: C.inkSoft }}>
+            → <b style={{ color: C.ink }}>{qteDeduite}</b> × {produitChoisi.nom}
+            {resteMontant > 0 && <span style={{ color: C.gold }}> (reste {fcfa(resteMontant)} non couvert : montant non divisible par {fcfa(produitChoisi.prix)})</span>}
+          </div>
+        )}
+        <button onClick={ajouterParMontant} disabled={qteDeduite <= 0}
+          className="w-full py-2 rounded-lg text-xs font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
+          Ajouter à la commande
+        </button>
+      </div>
 
       <div className="mb-3">
         <span className="block text-xs font-semibold mb-1" style={{ color: C.inkSoft }}>Produits</span>
@@ -3725,6 +3821,7 @@ function PersonnelModal({ initial, onClose, onSave }) {
   const [contactUrgence, setContactUrgence] = useState(initial?.contactUrgence || "");
   const [photo, setPhoto] = useState(initial?.photo || "");
   const [typePaie, setTypePaie] = useState(initial?.typePaie || "journalier");
+  const [reserviste, setReserviste] = useState(!!initial?.reserviste);
   const [modeSalaire, setModeSalaire] = useState("augmentation"); // "augmentation" | "correction"
 
   // Lecture + redimensionnement de la photo pour un stockage léger
@@ -3789,7 +3886,16 @@ function PersonnelModal({ initial, onClose, onSave }) {
           </button>
         </div>
       </Field>
-      <Field label={typePaie === "journalier" ? "Salaire journalier (FCFA / jour)" : "Salaire mensuel (FCFA / mois)"}>
+      <label className="flex items-start gap-2 mb-3 text-sm cursor-pointer" style={{ color: C.ink }}>
+        <input type="checkbox" checked={reserviste} onChange={(e) => setReserviste(e.target.checked)} className="mt-1" />
+        <span>
+          Employé(e) réserviste
+          <span className="block text-[11px]" style={{ color: C.inkSoft }}>
+            Appelé(e) au besoin : aucune journée n'est générée automatiquement. Tu ajoutes toi-même les jours travaillés, avec le montant convenu.
+          </span>
+        </span>
+      </label>
+      <Field label={typePaie === "journalier" ? (reserviste ? "Montant habituel par journée (FCFA, ajustable à chaque appel)" : "Salaire journalier (FCFA / jour)") : "Salaire mensuel (FCFA / mois)"}>
         <input type="number" value={salaire} onChange={(e) => setSalaire(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
       </Field>
       {initial && Number(salaire) !== Number(initial.salaire) && (
@@ -3824,7 +3930,7 @@ function PersonnelModal({ initial, onClose, onSave }) {
           id: initial?.id || "e" + Date.now(),
           nom, poste, tel, salaire: Number(salaire) || 0, dateEmbauche,
           dateAjoutApp: initial?.dateAjoutApp || todayISO(),
-          adresse, dateNaissance, cni, contactUrgence, photo, typePaie,
+          adresse, dateNaissance, cni, contactUrgence, photo, typePaie, reserviste,
         }, modeSalaire)}
         className="w-full mt-2 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40" style={{ background: C.green }}>
         {initial ? "Enregistrer les modifications" : "Enregistrer"}
